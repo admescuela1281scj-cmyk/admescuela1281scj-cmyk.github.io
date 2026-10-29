@@ -1,0 +1,36 @@
+CARPETA LISTA PARA SUBIR - ESCUELA 1281 (v3.46)
+================================================
+
+Adentro hay 3 archivos + este. NO los separes ni los renombres:
+
+  index.html              <- la app (v3.46)
+  manifest.json           <- nombre e icono cuando se instala en el celular
+  OneSignalSDKWorker.js   <- necesario para que el aviso suene con la app cerrada
+
+COMO SUBIRLA (1 minuto)
+-----------------------
+OPCION A - con el ZIP (la mas segura)
+  1) Ir a  https://app.netlify.com/drop
+  2) Arrastrar el archivo  SUBIR_ESTO_ESCUELA_1281_v3.46.zip
+  3) Listo. La direccion NO cambia: https://escuela-1281-katuete.netlify.app
+
+OPCION B - con la carpeta
+  1) Ir a  https://app.netlify.com/drop
+  2) Arrastrar la CARPETA COMPLETA (no un archivo suelto)
+
+IMPORTANTE
+----------
+Si arrastras SOLO el index.html, Netlify BORRA los otros dos archivos
+y las notificaciones dejan de funcionar. Subi siempre todo junto.
+
+QUE TENES QUE VER DESPUES
+-------------------------
+  1) https://escuela-1281-katuete.netlify.app/
+       -> abajo dice "PWA v3.46"
+  2) https://escuela-1281-katuete.netlify.app/OneSignalSDKWorker.js
+       -> muestra el texto importScripts(...)   (NO un 404)
+  3) https://escuela-1281-katuete.netlify.app/manifest.json
+       -> muestra el JSON con "Mi Escuela App"
+  4) En el celular: Avisos -> Notificaciones al celular -> Activar -> Permitir
+  5) En la app: boton "Revisar este celular"
+       -> "Archivo del push en el sitio: esta subido"
