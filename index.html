@@ -279,7 +279,7 @@ body{padding-bottom:env(safe-area-inset-bottom)}
 
     <div class="pt-foot">
       <b>Portal Educativo 1.281</b> · uso oficial de la escuela<br>
-      Funciona sin internet en el celular · <span class="pt-ver" id="selloVersion">PWA v3.60</span>
+      Funciona sin internet en el celular · <span class="pt-ver" id="selloVersion">PWA v3.61</span>
     </div>
   </div>
 </div>
@@ -1212,6 +1212,7 @@ function renderComunicados() {
           </div>
         </div>
         <div style="display:flex;flex-direction:column;gap:4px">
+          <button class="btn btn-whatsapp" style="padding:5px 9px;font-size:11px" onclick="comWA('${c.id}')">💬 WhatsApp</button>
           <button class="btn btn-primary" style="padding:5px 9px;font-size:11px" onclick="comVerAcuses('${c.id}')">📋 Acuses</button>
           <button class="btn btn-ghost" style="padding:5px 9px;font-size:11px" onclick="comArchivar('${c.id}')">🗄️ Archivar</button>
         </div>
@@ -4588,6 +4589,127 @@ function asisLimpiarDia() {
   toast('🧹 Día borrado');
 }
 
+/* ============================================================================
+ * 💬 WHATSAPP A LAS FAMILIAS (v3.61)
+ * Gratis, sin cuenta de Meta: se abre una conversación por cada familia con el
+ * mensaje ya escrito (wa.me). El mensaje sale con el nombre real del alumno y
+ * el celular que está cargado en el padrón.
+ * ========================================================================== */
+
+/** Deja el celular listo para wa.me: «0981 123456» → «595981123456». */
+function waTel_(cel) {
+  let t = String(cel || '').replace(/[^0-9]/g, '');
+  if (!t) return '';
+  if (t.length === 10 && t.charAt(0) === '0') return '595' + t.slice(1);
+  if (t.length === 9) return '595' + t;              // 981123456
+  if (t.length === 12 && t.indexOf('595') === 0) return t;
+  return t;
+}
+
+/** Arma el enlace de WhatsApp. Vacío si no hay celular. */
+function waLink_(cel, msg) {
+  const t = waTel_(cel);
+  if (!t) return '';
+  return 'https://wa.me/' + t + '?text=' + encodeURIComponent(msg || '');
+}
+
+/** Familias de un curso (o de toda la escuela si no se pasa curso).
+ *  Se descartan los repetidos: dos hermanos = un solo WhatsApp a la familia. */
+function waPadresDeCurso_(curso) {
+  const arr = (typeof alumnosStore === 'function' ? alumnosStore() : []).filter(a => alumnoActivo(a));
+  const c = curso || null;
+  const vistos = {};
+  const con = [], sin = [];
+  arr.forEach(a => {
+    if (c && c.grado && String(a.grado || '') !== String(c.grado)) return;
+    if (c && c.turno && String(a.turno || '') !== String(c.turno)) return;
+    if (c && c.seccion && String(a.seccion || 'A').toUpperCase() !== String(c.seccion).toUpperCase()) return;
+    const tel = waTel_(a.celPadre);
+    const fila = { alumno: a.nombre || '', cel: a.celPadre || '', tel: tel, curso: a.cursoNombre || a.grado || '' };
+    if (!tel) { sin.push(fila); return; }
+    if (vistos[tel]) return;
+    vistos[tel] = 1;
+    con.push(fila);
+  });
+  return { con: con, sin: sin };
+}
+
+/** Muestra la lista de familias con un botón por cada una (así el navegador
+ *  no bloquea las ventanas: cada toque es del usuario). */
+function waListaModal_(titulo, msg, datos) {
+  const con = datos.con || [], sin = datos.sin || [];
+  if (!con.length) {
+    return openModal(`<h3>💬 ${titulo}</h3>
+      <div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:10px;font-size:12.5px;color:#92400E">
+        No hay ningún <b>celular del padre</b> cargado en ${sin.length ? 'este curso' : 'el padrón'}.
+        Se completa en <b>👥 Alumnos → ✏️</b> (columna «Celular del padre»).</div>`);
+  }
+  const filas = con.map(f => `<a href="${waLink_(f.cel, msg)}" target="_blank" rel="noopener"
+      style="display:flex;align-items:center;gap:8px;text-decoration:none;color:#0F172A;border:1px solid #BBF7D0;background:#F0FDF4;border-radius:10px;padding:8px 10px;margin:5px 0">
+      <span style="font-size:18px">💬</span>
+      <span style="flex:1;min-width:0"><b style="font-size:12.5px">${f.alumno}</b><br>
+        <span style="font-size:11px;color:#64748B">${f.cel}</span></span>
+      <span style="font-size:11px;font-weight:800;color:#15803D">Enviar →</span></a>`).join('');
+  openModal(`<h3 style="margin:0 0 4px">💬 ${titulo}</h3>
+    <div class="card-sub" style="margin-bottom:8px">Tocá cada familia para abrir WhatsApp con el mensaje ya escrito.
+      Son <b>${con.length}</b> conversación(es).</div>
+    <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:10px;font-size:12px;color:#334155;white-space:pre-wrap;max-height:120px;overflow:auto">${(msg || '').replace(/</g, '&lt;')}</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0">
+      <button class="btn btn-ghost" style="padding:5px 9px;font-size:11.5px" onclick="waCopiarTexto_()">📋 Copiar el mensaje</button>
+      ${sin.length ? `<span class="pill" style="background:#FEF3C7;color:#92400E;font-size:10.5px">⚠️ ${sin.length} familia(s) sin celular</span>` : ''}
+    </div>
+    <div style="max-height:320px;overflow:auto">${filas}</div>
+    ${sin.length ? `<div style="font-size:11px;color:#92400E;background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:8px;margin-top:8px">
+      Sin celular cargado: ${sin.map(f => f.alumno).join(' · ').replace(/</g, '&lt;')}</div>` : ''}`);
+  window.__waMsgActual = msg || '';
+}
+
+/** Copia el mensaje al portapapeles (para pegarlo en cualquier lado). */
+function waCopiarTexto_() {
+  const t = window.__waMsgActual || '';
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(t).then(() => toast('📋 Mensaje copiado')).catch(() => { });
+      return;
+    }
+  } catch (e) { }
+  try { window.prompt('Copiá el mensaje:', t); } catch (e) { }
+}
+
+/** Texto del comunicado para las familias. */
+function comWATexto_(c) {
+  const cab = '📢 ESCUELA BÁSICA N° 1.281 «SAGRADO CORAZÓN DE JESÚS» · KATUETÉ';
+  const pie = '\n\n— Dirección · ' + String((c && c.fecha) || hoyISO());
+  return cab + '\n\n' + String((c && c.titulo) || '') + '\n\n' + String((c && c.mensaje) || '') + pie;
+}
+
+/** 💬 Botón de cada comunicado: elegir el curso y ver las familias. */
+function comWA(id) {
+  const c = comStore().find(x => String(x.id) === String(id));
+  if (!c) return toast('No encontré ese comunicado');
+  const lista = (typeof asisCursosDisponibles === 'function' ? asisCursosDisponibles() : []);
+  const opts = lista.map(x => `<option value="${x.label}">${x.label}</option>`).join('') +
+    '<option value="__TODOS__">Toda la escuela</option>';
+  openModal(`<h3 style="margin:0 0 4px">💬 Avisar por WhatsApp</h3>
+    <div class="card-sub" style="margin-bottom:8px">A las <b>familias</b> (padres/tutores), por curso. Gratis.</div>
+    <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:10px;font-size:12px;color:#334155;white-space:pre-wrap;max-height:130px;overflow:auto">${comWATexto_(c).replace(/</g, '&lt;')}</div>
+    <label style="font-size:12px;font-weight:700;display:block;margin-top:10px">¿A qué curso?</label>
+    <select id="waCursoCom" class="select" style="margin:4px 0 10px">${opts}</select>
+    <button class="btn btn-success" style="width:100%;justify-content:center" onclick="comWAArma('${c.id}')">Ver la lista de familias</button>`);
+}
+
+/** Arma la lista de familias del curso elegido para ese comunicado. */
+function comWAArma(id) {
+  const c = comStore().find(x => String(x.id) === String(id));
+  if (!c) return toast('No encontré ese comunicado');
+  const sel = document.getElementById('waCursoCom');
+  const label = sel ? sel.value : '__TODOS__';
+  const lista = (typeof asisCursosDisponibles === 'function' ? asisCursosDisponibles() : []);
+  const curso = (label === '__TODOS__') ? null : (lista.find(x => x.label === label) || { grado: label });
+  const datos = waPadresDeCurso_(curso);
+  waListaModal_('Avisar a las familias' + (curso ? ' · ' + (curso.label || curso.grado) : ' · toda la escuela'), comWATexto_(c), datos);
+}
+
 /** WhatsApp al padre de un alumno (ausente o aviso puntual). */
 function asisWA(ci) {
   const a = alumnosCurso().find(x => String(x.cedula).replace(/[^0-9]/g, '') === ci);
@@ -4724,10 +4846,28 @@ function renderNotifs(){
   const notifs=loadStore('notifs',[]), isDoc=currentUser.role==='docente'||currentUser.role==='director', isPadre=currentUser.role==='padre';
   return `<div class="grid2"><div class="card"><div class="card-title">🔔 Notificaciones</div><div class="card-sub">${isDoc?'Push + email a padres':'Avisos de la escuela — solo lectura'}</div>${isPadre?`<div style="background:#EFF6FF;border:1px solid #BFDBFE;padding:8px;border-radius:8px;font-size:11px;margin-bottom:8px">👪 Usted <b>solo ve</b> los avisos — no puede enviar. Los envía el docente/dirección.</div>`:''}${notifs.map(n=>`<div class="notif ${n.unread?'unread':''}"><span style="font-size:18px">${n.unread?'🔵':'✅'}</span><div style="flex:1"><b style="font-size:13px">${n.titulo}</b><p style="font-size:12px;color:var(--muted)">${n.desc}</p><span style="font-size:11px" class="pill pill-gray">${n.fecha} • ${n.para}</span></div></div>`).join('')}</div>
   <div>${isDoc?`<div class="card"><div class="card-title">📢 Enviar aviso</div><select id="notifPara" class="select" style="margin:6px 0"><option>Todos</option>${cursos.map(c=>`<option>${c.nombre}</option>`).join('')}</select><input id="notifTit" class="input" placeholder="Título" style="margin:6px 0"><textarea id="notifDesc" class="textarea" placeholder="Mensaje..."></textarea><div style="display:flex;gap:8px;margin-top:10px"><button class="btn btn-primary" style="flex:1" onclick="enviarNotif()">📲 Enviar</button><button class="btn btn-whatsapp" onclick="enviarNotifWA()">💬 +WhatsApp</button></div></div>`: `<div class="card"><div class="card-title">📲 Tus avisos — solo lectura</div><p style="font-size:13px;color:var(--muted)">${isPadre?`Usted ve los avisos de <b>${currentUser.hijo}</b>. No puede enviar — solo la escuela envía.`:`Recibís todo en la PWA.`}</p><button class="btn btn-primary" style="width:100%;margin-top:10px" onclick="toast('🔔 Notificaciones activas')">Activar push</button></div>`}
-  <div class="card" style="margin-top:14px"><div class="card-title">💬 WhatsApp</div><p style="font-size:12px">Nivel 1: wa.me gratis. Nivel 2: Cloud API 1k gratis.</p></div></div></div>`;
+  <div class="card" style="margin-top:14px"><div class="card-title">💬 WhatsApp</div>
+    <p style="font-size:12px;color:#475569">Se abre una conversación por familia con el mensaje ya escrito (gratis, sin cuenta de Meta).
+    Usa el <b>celular del padre</b> cargado en 👥 Alumnos.<br>
+    Desde <b>📢 Comunicados</b> podés avisar a todo un curso, y en <b>✅ Asistencia</b> a los ausentes del día.</p></div></div></div>`;
 }
 function enviarNotif(){ const t=document.getElementById('notifTit').value.trim(); if(!t) return toast('Título requerido'); const a=loadStore('notifs',[]); a.unshift({id:Date.now(), titulo:t, desc:document.getElementById('notifDesc').value, fecha:'Ahora', unread:true, para:document.getElementById('notifPara').value}); saveStore('notifs',a); navigate('notifs'); toast('✅ Enviada'); }
-function enviarNotifWA(){ enviarNotif(); setTimeout(()=>toast('💬 WhatsApp enviado'),600); }
+/** 📲 Guarda el aviso en la app y ADEMÁS abre la lista de familias por WhatsApp. */
+function enviarNotifWA(){
+  const tit = document.getElementById('notifTit');
+  const des = document.getElementById('notifDesc');
+  const par = document.getElementById('notifPara');
+  if (!tit || !tit.value.trim()) return toast('Escribí el título del aviso');
+  const t = tit.value.trim(), d = (des ? des.value : '') || '', para = par ? par.value : 'Todos';
+  enviarNotif();                                     // queda en la campanita de la app
+  const c = { id: Date.now(), titulo: t, mensaje: d, fecha: hoyISO() };
+  let curso = null;
+  try {
+    if (para && para !== 'Todos') curso = (cursos || []).find(x => x.nombre === para) || { grado: para };
+  } catch (e) { }
+  waListaModal_('Avisar a las familias' + (curso ? ' · ' + (curso.nombre || curso.grado) : ' · toda la escuela'),
+    comWATexto_(c), waPadresDeCurso_(curso));
+}
 
 function renderReportes(){
   return `<div class="card"><div class="card-title">📈 Reportes MEC</div><div class="card-sub">Exportables a Excel — todo queda en la PWA</div>
@@ -7796,7 +7936,8 @@ function renderDocentes() {
       <td style="text-align:left"><b>${d.nombre || ''}</b>
         <br><span style="font-size:11px;color:var(--muted)">${docenteCursosEtiquetas(d).map(c => c.label).join(' · ') || '—'}</span>
         <br><span class="pill pill-blue" style="font-size:10px">${d.seccion ? 'Sección ' + d.seccion : 'Secciones A y B'}</span></td>
-      <td style="font-size:12px">${d.correo || '—'}</td>
+      <td style="font-size:12px">${d.correo || '—'}
+        ${d.cel ? `<br><span style="font-size:11px;color:#15803D">💬 ${d.cel}</span>` : `<br><span style="font-size:11px;color:#B45309">sin celular</span>`}</td>
       <td style="font-family:monospace;font-size:12px">${d.pin || '—'}</td>
       <td style="text-align:left;font-size:11.5px">${materiasTexto(d)}
         ${(d.materias || []).length ? `<br><span class="pill pill-blue" style="font-size:10px">${d.materias.length} materia(s)</span>` : ''}</td>
@@ -7887,6 +8028,11 @@ function openDocenteForm(id) {
     <input id="dPin" class="input" inputmode="numeric" maxlength="4" value="${d ? d.pin || '' : ''}"
            placeholder="0000" style="margin:4px 0 4px">
     <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Se usa si el correo institucional se bloquea.</div>
+
+    <label style="font-size:12px;font-weight:700">Celular del docente (WhatsApp)</label>
+    <input id="dCel" class="input" inputmode="tel" value="${d ? String(d.cel || '').replace(/"/g, '&quot;') : ''}"
+           placeholder="0981 123456" style="margin:4px 0 4px">
+    <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Con este número los padres te escriben desde <b>💬 Avisar a la maestra</b>.</div>
 
     <label style="font-size:12px;font-weight:700">Sección que atiende</label>
     <select id="dSec" class="select" style="margin:4px 0 10px">
@@ -7997,6 +8143,8 @@ function guardarDocenteForm(id) {
     .map(c => ({ grado: c.dataset.grado, turno: c.dataset.turno }));
   const grados = [...new Set(cursos.map(c => c.grado))];
   const turnos = [...new Set(cursos.map(c => c.turno))];
+  const celInp = document.getElementById('dCel');
+  const celDoc = celInp ? String(celInp.value || '').trim() : '';
   // 🅰️🅱️ sección que atiende el docente ('' = las dos)
   const secInp = document.getElementById('dSec');
   const seccion = secInp ? String(secInp.value || '').toUpperCase() : '';
@@ -8023,11 +8171,11 @@ function guardarDocenteForm(id) {
   if (id) {
     const d = arr.find(x => x.id === id);
     if (!d) return toast('No se encontró el docente');
-    Object.assign(d, { nombre, correo, pin, grado, turno, grados, turnos, seccion, cursos, otras: otras.join(', '), materias, actualizado: new Date().toISOString() });
+    Object.assign(d, { nombre, correo, pin, cel: celDoc, grado, turno, grados, turnos, seccion, cursos, otras: otras.join(', '), materias, actualizado: new Date().toISOString() });
   } else {
     arr.push({
       id: arr.reduce((m, x) => Math.max(m, Number(x.id) || 0), 0) + 1,
-      nombre, correo, pin, grado, turno, grados, turnos, seccion, cursos, otras: otras.join(', '), materias,
+      nombre, correo, pin, cel: celDoc, grado, turno, grados, turnos, seccion, cursos, otras: otras.join(', '), materias,
       estado: 'activo', actualizado: new Date().toISOString()
     });
   }
@@ -9025,7 +9173,49 @@ function enviarMensajeDoc(alumnoId){
 function toast(m){ const t=document.getElementById('toast'); t.textContent=m; t.style.display='block'; setTimeout(()=>t.style.display='none',2800); }
 function openModal(h){ document.getElementById('modalBox').innerHTML=h+`<div style="text-align:right;margin-top:12px"><button class="btn btn-ghost" onclick="closeModal()">Cerrar</button></div>`; document.getElementById('modalBg').style.display='flex'; }
 function closeModal(){ document.getElementById('modalBg').style.display='none'; }
-function openWhatsAppDocente(){ const m=encodeURIComponent('Hola Profe, soy mamá de Sofía 6to A. Consulta sobre tarea.'); window.open(`https://wa.me/595981123456?text=${m}`,'_blank'); }
+/** 💬 El padre escribe a la maestra: nombre real del hijo y celular real del docente. */
+function openWhatsAppDocente(){
+  const hijo = String((currentUser && (currentUser.hijo || currentUser.name)) || 'mi hijo/a');
+  const curso = String((currentUser && (currentUser.hijoCursoNombre || currentUser.hijoCurso ||
+    currentUser.hijoGrado || currentUser.cursoNombre || currentUser.grado)) || '');
+  // se busca el docente del curso del alumno; si no hay, cualquiera con celular cargado
+  let profe = null;
+  try {
+    const ds = (typeof docentesStore === 'function' ? docentesStore() : []).filter(d => d.estado === 'activo');
+    const g = String((currentUser && (currentUser.hijoGrado || currentUser.grado)) || '');
+    profe = ds.find(d => waTel_(d.cel) && (docenteCursos(d) || []).some(c => String(c.grado) === g))
+      || ds.find(d => waTel_(d.cel)) || null;
+  } catch (e) { profe = null; }
+  const msgBase = 'Hola' + (profe && profe.nombre ? ' ' + String(profe.nombre).split(' ')[0] : '') +
+    ', le escribo de la familia de ' + hijo + (curso ? ' (' + curso + ')' : '') + '. Consulta: ';
+  openModal(`<h3 style="margin:0 0 4px">💬 Avisar a la maestra</h3>
+    <div class="card-sub" style="margin-bottom:8px">Se abre WhatsApp con el mensaje ya escrito. Podés cambiarlo antes de enviar.</div>
+    ${profe && waTel_(profe.cel)
+      ? `<div style="font-size:12px;color:#065F46;background:#ECFDF5;border:1px solid #A7F3D0;border-radius:8px;padding:8px;margin-bottom:8px">
+           👩‍🏫 Va a <b>${profe.nombre}</b> · ${profe.cel}</div>`
+      : `<div style="font-size:12px;color:#92400E;background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:8px;margin-bottom:8px">
+           ⚠️ La escuela todavía no cargó el celular del docente. Escribile por <b>✉️ Mensajes</b> o avisá en Dirección.</div>`}
+    <textarea id="waMsgPadre" class="textarea" rows="4" style="font-size:13px">${msgBase.replace(/</g, '&lt;')}</textarea>
+    <button class="btn btn-whatsapp" style="width:100%;justify-content:center;margin-top:10px"
+      onclick="waEnviarPadre()">💬 Abrir WhatsApp</button>`);
+}
+
+/** Abre WhatsApp con el mensaje que escribió el padre. */
+function waEnviarPadre(){
+  const ta = document.getElementById('waMsgPadre');
+  const msg = ta ? ta.value : '';
+  let profe = null;
+  try {
+    const ds = (typeof docentesStore === 'function' ? docentesStore() : []).filter(d => d.estado === 'activo');
+    const g = String((currentUser && (currentUser.hijoGrado || currentUser.grado)) || '');
+    profe = ds.find(d => waTel_(d.cel) && (docenteCursos(d) || []).some(c => String(c.grado) === g))
+      || ds.find(d => waTel_(d.cel)) || null;
+  } catch (e) { profe = null; }
+  if (!profe || !waTel_(profe.cel)) return toast('La escuela no cargó el celular del docente');
+  const url = waLink_(profe.cel, msg);
+  try { window.open(url, '_blank'); } catch (e) { location.href = url; }
+  closeModal();
+}
 // Abrir directamente el acceso que pide el enlace: index.html?rol=padre
 // 🔐 al abrir la app: si ya había alguien conectado, entra directo sin pedir nada
 (function(){
@@ -9069,5 +9259,5 @@ let deferredPrompt=null; window.addEventListener('beforeinstallprompt',e=>{e.pre
 function promptInstall(){ if(deferredPrompt) deferredPrompt.prompt(); else toast('📲 Menú ⋮ → Agregar a pantalla principal'); }
 </script>
 <div id="printArea"></div>
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a53ce86c2d0a4931',t:'MTc5MzU1NzE2OA=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a53ce86c2d0a4931',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a53d0291bfab70c6',t:'MTc5MzU1ODIzOA=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a53d0291bfab70c6',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
