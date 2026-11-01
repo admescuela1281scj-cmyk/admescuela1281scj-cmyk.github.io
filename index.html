@@ -279,7 +279,7 @@ body{padding-bottom:env(safe-area-inset-bottom)}
 
     <div class="pt-foot">
       <b>Portal Educativo 1.281</b> · uso oficial de la escuela<br>
-      Funciona sin internet en el celular · <span class="pt-ver" id="selloVersion">PWA v3.58</span>
+      Funciona sin internet en el celular · <span class="pt-ver" id="selloVersion">PWA v3.60</span>
     </div>
   </div>
 </div>
@@ -1718,7 +1718,7 @@ function pushAyudaPermiso() {
       <b>OPCIÓN 2 — a mano en los ajustes de Chrome (siempre funciona)</b><br>
       1) Tocá los <b>3 puntitos ⋮</b> de Chrome (arriba a la derecha)<br>
       2) <b>Configuración</b> → <b>Configuración de sitios</b> → <b>Notificaciones</b><br>
-      3) Buscá <b>escuela-1281-katuete.netlify.app</b> en la lista<br>
+      3) Buscá <b>${(typeof location!=='undefined'? location.hostname : 'la dirección de la escuela')}</b> en la lista<br>
       4) Tocalo y elegí <b>Permitir</b><br>
       5) Volvé a la app y tocá <b>🔔 Activar notificaciones</b>
     </div>
@@ -1890,6 +1890,14 @@ function pushAbrirConfig() {
     'La REST API Key queda guardada <b>en el servidor</b> (Apps Script), no en los celulares.' +
     '</div>';
 
+  /* 🔧 v3.60 — cada vez que se abre esta ventana se vuelven a revisar los archivos
+   * y se repinta el diagnóstico (antes mostraba un resultado viejo). */
+  try {
+    pushRevisarArchivos(function () {
+      try { if (document.getElementById('pushRevisarCaja')) pushRevisarCelular(); } catch (e) { }
+    });
+  } catch (e) { }
+
   openModal(
     '<h3 style="margin:0 0 4px">🔔 Notificaciones en el celular</h3>' +
     '<div class="card-sub" style="margin-bottom:10px">Para que el aviso suene con la app cerrada. Es gratis (OneSignal).</div>' +
@@ -1967,18 +1975,33 @@ try { window.addEventListener('online', function () { try { pushReintentarPendie
  */
 function pushRevisarArchivos(cb) {
   const base = location.origin;
-  const check = (ruta) => new Promise((res) => {
+  /* 🔧 v3.60 — Antes, si el celular tenía mala señal, el archivo se daba por
+   * «faltante» (rojo) aunque estuviera subido: asustaba sin motivo.
+   * Ahora se reintenta y, si el service worker del celular ya lo tiene instalado,
+   * se toma como confirmado. Solo se marca FALTA cuando el servidor dice 404. */
+  const intento = (ruta) => new Promise((res) => {
     let terminado = false;
     const fin = (v) => { if (!terminado) { terminado = true; res(v); } };
-    setTimeout(() => fin('sin respuesta'), 6000);
+    setTimeout(() => fin('sin respuesta'), 12000);
     try {
-      fetch(base + ruta, { cache: 'no-store' })
+      fetch(base + ruta + '?v=' + Date.now(), { cache: 'no-store' })
         .then(r => fin(r.ok ? 'ok' : ('HTTP ' + r.status)))
         .catch(() => fin('error de red'));
     } catch (e) { fin('error: ' + e.message); }
   });
-  return Promise.all([check('/OneSignalSDKWorker.js'), check('/manifest.json')]).then(r => {
-    const salida = { worker: r[0], manifest: r[1] };
+  const check = (ruta) => intento(ruta).then(v => (v === 'ok') ? v : intento(ruta));
+  const porWorker = () => new Promise((res) => {
+    try {
+      if (!navigator.serviceWorker || !navigator.serviceWorker.getRegistrations) return res(false);
+      navigator.serviceWorker.getRegistrations().then(list => {
+        res((list || []).some(r => /OneSignalSDKWorker\.js/i.test(String(r.active && r.active.scriptURL || r.scriptURL || ''))));
+      }).catch(() => res(false));
+    } catch (e) { res(false); }
+  });
+  return Promise.all([check('/OneSignalSDKWorker.js'), check('/manifest.json'), porWorker()]).then(r => {
+    let worker = r[0];
+    if (worker !== 'ok' && r[2]) worker = 'ok-sw';   // el celular ya lo tiene instalado
+    const salida = { worker: worker, manifest: r[1] };
     window.__archivosSitio = salida;
     if (typeof cb === 'function') cb(salida);
     return salida;
@@ -2000,8 +2023,18 @@ function pushRevisarCelular() {
       <span style="color:#475569">${k}</span>
       <b style="color:${ok === true ? '#047857' : ok === false ? '#B91C1C' : '#0f172a'};text-align:right">${v}</b></div>`);
   const ar = window.__archivosSitio || {};
-  linea('Archivo del push en el sitio', ar.worker === 'ok' ? '✅ está subido' : (ar.worker ? '❌ falta o da error (' + ar.worker + ')' : '⏳ revisando…'), ar.worker === 'ok');
-  linea('manifest (para instalar)', ar.manifest === 'ok' ? '✅ está subido' : (ar.manifest ? '❌ falta (' + ar.manifest + ')' : '⏳ revisando…'), ar.manifest === 'ok');
+  const bienW = (ar.worker === 'ok' || ar.worker === 'ok-sw');
+  const txtW = ar.worker === 'ok' ? '✅ está subido'
+    : ar.worker === 'ok-sw' ? '✅ está subido (lo confirmó el celular)'
+    : ar.worker === 'HTTP 404' ? '❌ falta (la dirección responde 404)'
+    : ar.worker ? '⚠️ no se pudo comprobar (' + ar.worker + ')'
+    : '⏳ revisando…';
+  linea('Archivo del push en el sitio', txtW, ar.worker ? bienW : null);
+  const bienM = (ar.manifest === 'ok');
+  linea('manifest (para instalar)', ar.manifest === 'ok' ? '✅ está subido'
+    : ar.manifest === 'HTTP 404' ? '❌ falta (la dirección responde 404)'
+    : ar.manifest ? '⚠️ no se pudo comprobar (' + ar.manifest + ')'
+    : '⏳ revisando…', ar.manifest ? bienM : null);
   linea('Permiso del celular', permiso, permiso === 'granted');
   linea('Está instalada como app', (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ? 'sí' : 'no (abierta en el navegador)', null);
   linea('OneSignal', sdk, window.__oneSignalCargado === true);
@@ -2024,14 +2057,14 @@ function pushRevisarCelular() {
   linea('Último error', err.slice(0, 120), err === '(ninguno)');
 
   const caja = document.getElementById('pushRevisarCaja');
-  if (ar.worker && ar.worker !== 'ok') {
+  if (ar.worker === 'HTTP 404') {
     filas.push(`<div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:10px;padding:10px;font-size:12px;color:#B91C1C;margin-top:8px">
       🚨 <b>Falta el archivo <code>OneSignalSDKWorker.js</code> en el sitio</b> (${ar.worker}).<br>
       Sin ese archivo <b>ningún celular puede quedar suscripto</b>, aunque el permiso esté dado,
       y OneSignal va a contestar «All included players are not subscribed».<br>
       <b>Qué hacer:</b> volver a subir la carpeta completa (<code>index.html</code> + <code>manifest.json</code> + <code>OneSignalSDKWorker.js</code>) y después tocar 🔔 Activar de nuevo.</div>`);
   }
-  if (ar.manifest && ar.manifest !== 'ok') {
+  if (ar.manifest === 'HTTP 404') {
     filas.push(`<div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:10px;font-size:12px;color:#92400E;margin-top:8px">
       ⚠️ Falta <code>manifest.json</code>: la app funciona, pero no se instala bien en el celular (ícono y nombre). Subí la carpeta completa.</div>`);
   }
@@ -6215,7 +6248,7 @@ const PLAT_SUGERIDAS = [
   { id: 'P_POWER', ic: '📄', nombre: 'Power Apps — Documentos', para: 'DOCENTES', url: '',
     desc: 'Subida de documentos del docente. Pegá acá el enlace de Power Apps.' },
   { id: 'P_PWA', ic: '🏫', nombre: 'PWA Escuela 1.281', para: 'TODOS',
-    url: 'https://escuela-1281-katuete.netlify.app/',
+    url: (typeof location !== 'undefined' ? location.origin + '/' : ''),
     desc: 'Esta misma app: asistencia, tareas, comunicados y notas.' }
 ];
 
@@ -9036,5 +9069,5 @@ let deferredPrompt=null; window.addEventListener('beforeinstallprompt',e=>{e.pre
 function promptInstall(){ if(deferredPrompt) deferredPrompt.prompt(); else toast('📲 Menú ⋮ → Agregar a pantalla principal'); }
 </script>
 <div id="printArea"></div>
-</body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a53ce86c2d0a4931',t:'MTc5MzU1NzE2OA=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a53ce86c2d0a4931',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
