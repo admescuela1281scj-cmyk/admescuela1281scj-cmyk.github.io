@@ -279,7 +279,7 @@ body{padding-bottom:env(safe-area-inset-bottom)}
 
     <div class="pt-foot">
       <b>Portal Educativo 1.281</b> · uso oficial de la escuela<br>
-      Funciona sin internet en el celular · <span class="pt-ver" id="selloVersion">PWA v3.61</span>
+      Funciona sin internet en el celular · <span class="pt-ver" id="selloVersion">PWA v3.62</span>
     </div>
   </div>
 </div>
@@ -2189,7 +2189,7 @@ function buildSidebar(){
       {id:'plataformas', ic:'🔗', label:'Plataformas', sub:'Observación y más'}
     ];
   } else if(isDoc){
-    items=[{id:'dashboard',ic:'📊',label:'Panel',sub:'Resumen del día'},{id:'asistencia',ic:'✅',label:'Asistencia',sub:'Pasar lista'},{id:'actividades',ic:'✨',label:'Tareas',sub:'Crear y seguir'},{id:'calificaciones',ic:'📊',label:'Calificaciones',sub:'Cargar notas'},{id:'uniforme',ic:'👕',label:'Uniforme',sub:'Entrega kit'},{id:'informes',ic:'📄',label:'Informes',sub:'Trimestrales'},{id:'mensajes',ic:'✉️',label:'Mensajes',sub:'De padres'},{id:'cuadernillos',ic:'📚',label:'Cuadernillos',sub:'MEC por grado'},{id:'recursos',ic:'📂',label:'Recursos',sub:'PDF y videos'},{id:'plataformas',ic:'🔗',label:'Plataformas',sub:'Observación y más'},{id:'notifs',ic:'🔔',label:'Avisos',sub:'A padres'},{id:'reportes',ic:'📈',label:'Reportes',sub:'Excel MEC'}];
+    items=[{id:'dashboard',ic:'📊',label:'Panel',sub:'Resumen del día'},{id:'asistencia',ic:'✅',label:'Asistencia',sub:'Pasar lista'},{id:'familias',ic:'📢',label:'Aviso a familias',sub:'Por WhatsApp'},{id:'actividades',ic:'✨',label:'Tareas',sub:'Crear y seguir'},{id:'calificaciones',ic:'📊',label:'Calificaciones',sub:'Cargar notas'},{id:'uniforme',ic:'👕',label:'Uniforme',sub:'Entrega kit'},{id:'informes',ic:'📄',label:'Informes',sub:'Trimestrales'},{id:'mensajes',ic:'✉️',label:'Mensajes',sub:'De padres'},{id:'cuadernillos',ic:'📚',label:'Cuadernillos',sub:'MEC por grado'},{id:'recursos',ic:'📂',label:'Recursos',sub:'PDF y videos'},{id:'plataformas',ic:'🔗',label:'Plataformas',sub:'Observación y más'},{id:'notifs',ic:'🔔',label:'Avisos',sub:'A padres'},{id:'reportes',ic:'📈',label:'Reportes',sub:'Excel MEC'}];
   } else if(isEst){
     items=[{id:'dashboard',ic:'🏠',label:'Inicio',sub:'Mi progreso'},{id:'actividades',ic:'✨',label:'Mis tareas',sub:'¡Hazlas aquí!'},{id:'calificaciones',ic:'📊',label:'Mis notas',sub:'Boletín'},{id:'asistencia',ic:'✅',label:'Mi asistencia',sub:'Mes'},{id:'uniforme',ic:'👕',label:'Uniforme',sub:'Mi kit'},{id:'cuadernillos',ic:'📚',label:'Cuadernillos',sub:currentUser.grado},{id:'recursos',ic:'📂',label:'Recursos',sub:'Material'},{id:'notifs',ic:'🔔',label:'Avisos',sub:'Profes'}];
   } else {
@@ -2370,6 +2370,7 @@ function navigate(v){
   if(v==='mensajes') c.innerHTML=renderMensajes();
   if(v==='comunicados'){ c.innerHTML=renderComunicados(); try{ comBajar(); }catch(e){} }
   if(v==='avisos'){ c.innerHTML=renderAvisos(); try{ comBajar(); }catch(e){} }
+  if(v==='familias'){ c.innerHTML=renderFamilias(); }
   if(v==='plataformas'){ c.innerHTML=renderPlataformas(); try{ platBajar(); }catch(e){} }
   // 🔒 al repintar la misma pantalla (pasar lista, marcar) NO se salta arriba
   if (!(window.__asisSinScroll && v === 'asistencia')) window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -4710,6 +4711,152 @@ function comWAArma(id) {
   waListaModal_('Avisar a las familias' + (curso ? ' · ' + (curso.label || curso.grado) : ' · toda la escuela'), comWATexto_(c), datos);
 }
 
+/* ============================================================================
+ * 📢 AVISO A LAS FAMILIAS (v3.62) — para los DOCENTES
+ * Antes el docente solo podía ver lo que mandaba Dirección. Ahora escribe su
+ * propio aviso y se lo manda a las familias de SU curso por WhatsApp.
+ * ========================================================================== */
+const FAM_KEY = 'avisos_familias';
+function famStore() { const a = loadStore(FAM_KEY, []); return Array.isArray(a) ? a : []; }
+function famGuardar(a) { saveStore(FAM_KEY, a || []); }
+
+/** Firma del aviso del docente. */
+function famFirma_() {
+  const n = String((currentUser && currentUser.name) || '').trim();
+  return (n ? '— Prof. ' + n + '\n' : '— ') + 'Escuela Básica N° 1.281 · Katueté';
+}
+
+/** Plantillas listas para tocar (no se escribe de cero cada vez). */
+const FAM_PLANTILLAS = [
+  { id: 'SIN_CLASES', ic: '🚫', t: 'Sin clases', txt: 'Buen día. Les aviso que mañana NO hay clases por [motivo]. Las tareas quedan en la app. Gracias.' },
+  { id: 'REUNION', ic: '👨‍👩‍👧', t: 'Reunión', txt: 'Buen día. Los convoco a una reunión de padres el [día] a las [hora] hs en la escuela. Se ruega puntualidad. Gracias.' },
+  { id: 'TAREA', ic: '📚', t: 'Tarea', txt: 'Buen día. La tarea asignada es: [detalle]. Debe entregarse el [fecha]. Está también en la app. Gracias.' },
+  { id: 'MATERIAL', ic: '✏️', t: 'Pedir material', txt: 'Buen día. Les pido enviar con sus hijos: [material]. Gracias.' },
+  { id: 'FALTA', ic: '⚠️', t: 'Falta / retiro', txt: 'Buen día. Les escribo por la asistencia de [alumno]: [detalle]. Por favor confirmar el motivo. Gracias.' },
+  { id: 'FELICITACION', ic: '🎉', t: 'Felicitación', txt: 'Buen día. Quiero felicitar a [alumno] por [motivo]. Es un orgullo tenerlo/a en clase. Gracias.' }
+];
+
+/** Texto completo del aviso del docente. */
+function famTexto_(titulo, mensaje) {
+  const cab = '📢 ESCUELA BÁSICA N° 1.281 «SAGRADO CORAZÓN DE JESÚS» · KATUETÉ';
+  const t = String(titulo || '').trim();
+  const m = String(mensaje || '').trim();
+  return cab + '\n\n' + (t ? t + '\n\n' : '') + m + '\n\n' + famFirma_();
+}
+
+/** Pantalla: el docente escribe su aviso y lo manda a las familias de su curso. */
+function renderFamilias() {
+  const lista = (typeof asisCursosDisponibles === 'function' ? asisCursosDisponibles() : []);
+  const cursoAuto = (typeof asisEtiqueta === 'function') ? asisEtiqueta() : '';
+  const opts = lista.map(c => `<option value="${c.label}" ${c.label === cursoAuto ? 'selected' : ''}>${c.label}</option>`).join('')
+    || `<option value="${cursoAuto || 'GENERAL'}">${cursoAuto || 'Mi curso'}</option>`;
+  const hist = famStore().slice().reverse().slice(0, 8);
+
+  return `<div class="card">
+    <div class="card-title" style="font-size:15px">📢 Aviso a las familias</div>
+    <div class="card-sub">Les llega por <b>WhatsApp</b>, al celular del padre/madre que está cargado en el padrón.
+      Un solo mensaje por familia: si hay dos hermanos, no se manda dos veces.</div>
+
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin:12px 0 8px">
+      ${FAM_PLANTILLAS.map(p => `<button class="btn btn-ghost" style="padding:5px 9px;font-size:11.5px"
+        onclick="famPlantilla('${p.id}')">${p.ic} ${p.t}</button>`).join('')}
+    </div>
+
+    <label style="font-size:12px;font-weight:700">Curso</label>
+    <select id="famCurso" class="select" style="margin:4px 0 10px">${opts}</select>
+
+    <label style="font-size:12px;font-weight:700">Título (opcional)</label>
+    <input id="famTitulo" class="input" placeholder="Ej.: Reunión de padres" style="margin:4px 0 10px">
+
+    <label style="font-size:12px;font-weight:700">Mensaje</label>
+    <textarea id="famMensaje" class="textarea" rows="5" placeholder="Escribí el aviso…" style="margin:4px 0 6px"
+      oninput="famVistaPrevia()"></textarea>
+
+    <div id="famPrev" style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:10px;
+      font-size:11.5px;color:#334155;white-space:pre-wrap;margin-bottom:10px">${famTexto_('', '').replace(/</g, '&lt;')}</div>
+
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-whatsapp" onclick="famEnviar()">💬 Ver familias y enviar</button>
+      <button class="btn btn-ghost" onclick="famCopiar()">📋 Copiar el mensaje</button>
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-top:8px">
+      💡 Es gratis y no necesita cuenta de Meta. Cada familia se abre con el mensaje ya escrito:
+      solo hay que tocar <b>enviar</b> en WhatsApp.
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:14px">
+    <div class="card-title">🗂️ Mis últimos avisos</div>
+    ${hist.length ? hist.map(a => `<div class="list-item" style="align-items:flex-start">
+        <span style="font-size:20px">📢</span>
+        <div style="flex:1">
+          <b style="font-size:12.5px">${a.titulo || '(sin título)'}</b>
+          <div style="font-size:11px;color:var(--muted)">${a.fecha} · ${a.curso || 'mi curso'}</div>
+          <div style="font-size:11.5px;color:#334155;margin-top:3px">${String(a.mensaje || '').slice(0, 120).replace(/</g, '&lt;')}</div>
+        </div>
+        <button class="btn btn-ghost" style="padding:4px 8px;font-size:11px" onclick="famReenviar('${a.id}')">💬 Reenviar</button>
+      </div>`).join('') : `<div class="card-sub">Todavía no mandaste avisos. Los que envíes quedan acá para reenviarlos.</div>`}
+  </div>`;
+}
+
+/** Pone una plantilla en el mensaje. */
+function famPlantilla(id) {
+  const p = FAM_PLANTILLAS.find(x => x.id === id);
+  if (!p) return;
+  const ta = document.getElementById('famMensaje');
+  if (ta) { ta.value = p.txt; }
+  const ti = document.getElementById('famTitulo');
+  if (ti && !ti.value) ti.value = p.t;
+  famVistaPrevia();
+}
+
+/** Refresca la vista previa del mensaje. */
+function famVistaPrevia() {
+  const ta = document.getElementById('famMensaje'), ti = document.getElementById('famTitulo');
+  const caja = document.getElementById('famPrev');
+  if (!caja) return;
+  caja.textContent = famTexto_(ti ? ti.value : '', ta ? ta.value : '');
+}
+
+/** Copia el aviso al portapapeles. */
+function famCopiar() {
+  const ta = document.getElementById('famMensaje'), ti = document.getElementById('famTitulo');
+  window.__waMsgActual = famTexto_(ti ? ti.value : '', ta ? ta.value : '');
+  waCopiarTexto_();
+}
+
+/** Muestra las familias del curso con el aviso ya escrito (y lo guarda en el historial). */
+function famEnviar() {
+  const ti = document.getElementById('famTitulo'), ta = document.getElementById('famMensaje'), sel = document.getElementById('famCurso');
+  const mensaje = ta ? String(ta.value || '').trim() : '';
+  if (!mensaje) return toast('Escribí el mensaje del aviso');
+  const label = sel ? sel.value : '';
+  const lista = (typeof asisCursosDisponibles === 'function' ? asisCursosDisponibles() : []);
+  const curso = lista.find(x => x.label === label) || { grado: label };
+  const datos = waPadresDeCurso_(curso);
+  if (!datos.con.length) {
+    return openModal(`<h3>💬 Avisar a las familias</h3>
+      <div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:10px;font-size:12.5px;color:#92400E">
+        No hay ningún <b>celular del padre</b> cargado en <b>${label || 'tu curso'}</b>.</div>
+      <div style="font-size:11.5px;color:#475569;margin-top:8px">Se completa en <b>👥 Alumnos → ✏️</b> (lo hace Dirección).</div>`);
+  }
+  // queda en el historial del docente
+  const arr = famStore();
+  arr.push({ id: 'F' + Date.now(), titulo: (ti ? String(ti.value || '').trim() : '') || '(sin título)',
+    mensaje: mensaje, curso: label, fecha: hoyISO(), familias: datos.con.length });
+  famGuardar(arr);
+  waListaModal_('Aviso a las familias · ' + (label || 'mi curso'), famTexto_(ti ? ti.value : '', mensaje), datos);
+}
+
+/** Reenvía un aviso guardado. */
+function famReenviar(id) {
+  const a = famStore().find(x => String(x.id) === String(id));
+  if (!a) return toast('No encontré ese aviso');
+  const lista = (typeof asisCursosDisponibles === 'function' ? asisCursosDisponibles() : []);
+  const curso = lista.find(x => x.label === a.curso) || { grado: a.curso };
+  waListaModal_('Reenviar · ' + (a.curso || 'mi curso'), famTexto_(a.titulo, a.mensaje), waPadresDeCurso_(curso));
+}
+
 /** WhatsApp al padre de un alumno (ausente o aviso puntual). */
 function asisWA(ci) {
   const a = alumnosCurso().find(x => String(x.cedula).replace(/[^0-9]/g, '') === ci);
@@ -5946,7 +6093,7 @@ const PERMISOS = {
     'calificaciones', 'uniforme', 'informes', 'mensajes', 'cuadernillos', 'recursos',
     'notifs', 'reportes', 'diagnostico', 'comunicados', 'plataformas'],
   docente: ['dashboard', 'asistencia', 'actividades', 'calificaciones',
-    'informes', 'mensajes', 'cuadernillos', 'recursos', 'avisos', 'plataformas'],
+    'informes', 'mensajes', 'cuadernillos', 'recursos', 'avisos', 'plataformas', 'familias'],
   estudiante: ['dashboard', 'actividades', 'calificaciones', 'asistencia',
     'uniforme', 'cuadernillos', 'recursos', 'notifs'],
   padre: ['dashboard', 'actividades', 'asistencia', 'calificaciones',
@@ -9259,5 +9406,5 @@ let deferredPrompt=null; window.addEventListener('beforeinstallprompt',e=>{e.pre
 function promptInstall(){ if(deferredPrompt) deferredPrompt.prompt(); else toast('📲 Menú ⋮ → Agregar a pantalla principal'); }
 </script>
 <div id="printArea"></div>
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a53d0291bfab70c6',t:'MTc5MzU1ODIzOA=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a53d0291bfab70c6',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a53d256c2e143ae0',t:'MTc5MzU1OTY2Ng=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a53d256c2e143ae0',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
