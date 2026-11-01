@@ -279,7 +279,7 @@ body{padding-bottom:env(safe-area-inset-bottom)}
 
     <div class="pt-foot">
       <b>Portal Educativo 1.281</b> · uso oficial de la escuela<br>
-      Funciona sin internet en el celular · <span class="pt-ver" id="selloVersion">PWA v3.64</span>
+      Funciona sin internet en el celular · <span class="pt-ver" id="selloVersion">PWA v3.65</span>
     </div>
   </div>
 </div>
@@ -2368,10 +2368,23 @@ function navigate(v){
   if(v==='calificaciones') c.innerHTML=renderCalificaciones();
   if(v==='uniforme') c.innerHTML=renderUniforme();
   if(v==='informes') c.innerHTML=renderInformes();
-  if(v==='mensajes') c.innerHTML=renderMensajes();
+  if(v==='mensajes'){
+    c.innerHTML=renderMensajes();
+    // ☁️ v3.65: primero pinta lo del celular y en segundo plano trae lo de la planilla
+    try {
+      const esP = currentUser && currentUser.role==='padre';
+      msgBajar_(esP ? String(currentUser.hijoId||currentUser.ci||'') : '', (ok, det) => {
+        if(ok && det && det.nuevos) msgRefrescarSi_('mensajes', renderMensajes);
+      });
+    } catch(e){}
+  }
   if(v==='comunicados'){ c.innerHTML=renderComunicados(); try{ comBajar(); }catch(e){} }
   if(v==='avisos'){ c.innerHTML=renderAvisos(); try{ comBajar(); }catch(e){} }
-  if(v==='familias'){ c.innerHTML=renderFamilias(); }
+  if(v==='familias'){
+    c.innerHTML=renderFamilias();
+    // ☁️ v3.65: el historial completo llega de la planilla
+    try { famBajar_((ok, det) => { if(ok && det && det.nuevos) msgRefrescarSi_('familias', renderFamilias); }); } catch(e){}
+  }
   if(v==='plataformas'){ c.innerHTML=renderPlataformas(); try{ platBajar(); }catch(e){} }
   // 🔒 al repintar la misma pantalla (pasar lista, marcar) NO se salta arriba
   if (!(window.__asisSinScroll && v === 'asistencia')) window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -4717,6 +4730,88 @@ function comWAArma(id) {
  * Antes el docente solo podía ver lo que mandaba Dirección. Ahora escribe su
  * propio aviso y se lo manda a las familias de SU curso por WhatsApp.
  * ========================================================================== */
+/* ===================== ☁️ v3.65 · NADA SE PIERDE =====================
+ *  Los AVISOS A FAMILIAS y los MENSAJES (padre ↔ docente) dejaron de vivir
+ *  solo en el celular: se guardan en la planilla del módulo (hojas
+ *  AVISOS_FAMILIAS y MENSAJES). Así se ven desde cualquier aparato y no se
+ *  borran al limpiar los datos del navegador.
+ *  Si no hay enlace configurado o no hay internet, la app sigue funcionando
+ *  igual con lo que tiene guardado acá y reintenta la próxima vez.
+ * ====================================================================== */
+function b64Json_(obj) {
+  try { return btoa(unescape(encodeURIComponent(JSON.stringify(obj)))); } catch (e) { return ''; }
+}
+function famSubir_(av, cb) {
+  cb = cb || function () { };
+  const url = (typeof comUrl === 'function' ? comUrl() : '');
+  if (!url) return cb(false, 'Sin enlace del módulo');
+  const d = b64Json_([{ id: String(av.id || ''), fecha: String(av.fecha || ''), curso: String(av.curso || ''),
+    titulo: String(av.titulo || ''), mensaje: String(av.mensaje || ''), docente: String(av.docente || ''),
+    familias: Number(av.familias || 0), estado: 'ACTIVO' }]);
+  jsonpCall(url, { famsave: '1', d: d }, (res) => {
+    cb(!!(res && res.ok), res);
+  }, { timeout: 45000 });
+}
+function famBajar_(cb) {
+  cb = cb || function () { };
+  const url = (typeof comUrl === 'function' ? comUrl() : '');
+  if (!url) return cb(false, 'Sin enlace del módulo');
+  jsonpCall(url, { famget: '1' }, (res) => {
+    if (!res || !res.ok) return cb(false, (res && res.error) || 'No se pudo leer');
+    const filas = res.filas || [];
+    const arr = famStore();
+    const vistos = new Set(arr.map(a => String(a.id)));
+    let nuevos = 0;
+    filas.forEach(f => {
+      const id = String(f[0] || ''); if (!id || vistos.has(id)) return;
+      arr.push({ id: id, fecha: String(f[1] || ''), curso: String(f[2] || ''), titulo: String(f[3] || ''),
+        mensaje: String(f[4] || ''), docente: String(f[5] || ''), familias: Number(f[6] || 0), estado: String(f[7] || 'ACTIVO') });
+      vistos.add(id); nuevos++;
+    });
+    if (nuevos) famGuardar(arr);
+    cb(true, { nuevos: nuevos, total: arr.length });
+  }, { timeout: 45000 });
+}
+function msgSubir_(m, cb) {
+  cb = cb || function () { };
+  const url = (typeof comUrl === 'function' ? comUrl() : '');
+  if (!url) return cb(false, 'Sin enlace del módulo');
+  const d = b64Json_([{ id: String(m.id || ''), fecha: String(m.fecha || ''), de: String(m.de || ''),
+    autor: String(m.autor || ''), cedula: String(m.alumnoId || ''), alumno: String(m.alumnoNombre || ''),
+    texto: String(m.texto || ''), leido: !!m.leido }]);
+  jsonpCall(url, { msgsave: '1', d: d }, (res) => { cb(!!(res && res.ok), res); }, { timeout: 45000 });
+}
+/** Trae las conversaciones de la planilla y las mezcla con las del celular. */
+function msgBajar_(alumno, cb) {
+  cb = cb || function () { };
+  const url = (typeof comUrl === 'function' ? comUrl() : '');
+  if (!url) return cb(false, 'Sin enlace del módulo');
+  jsonpCall(url, { msgget: '1', alumno: String(alumno || '') }, (res) => {
+    if (!res || !res.ok) return cb(false, (res && res.error) || 'No se pudo leer');
+    const filas = res.filas || [];
+    const arr = loadStore('mensajes', []);
+    const porId = new Map(arr.map(m => [String(m.id), m]));
+    let nuevos = 0;
+    filas.forEach(f => {
+      const id = String(f[0] || ''); if (!id) return;
+      const reg = { id: (isNaN(Number(id)) ? id : Number(id)), fecha: String(f[1] || ''),
+        de: String(f[2] || '').toLowerCase(), autor: String(f[3] || ''),
+        alumnoId: String(f[4] || ''), alumnoNombre: String(f[5] || ''), texto: String(f[6] || ''),
+        leido: /^s/i.test(String(f[7] || '')) };
+      const antes = porId.get(id);
+      if (!antes) nuevos++;
+      porId.set(id, Object.assign({}, antes || {}, reg));
+    });
+    const lista = Array.from(porId.values()).sort((a, b) => (Number(a.id) || 0) - (Number(b.id) || 0));
+    saveStore('mensajes', lista);
+    cb(true, { nuevos: nuevos, total: lista.length });
+  }, { timeout: 45000 });
+}
+/** Refresca la pantalla abierta si es la misma (sin bucles). */
+function msgRefrescarSi_(vista, pintar) {
+  try { if (currentView === vista) document.getElementById('appContent').innerHTML = pintar(); } catch (e) { }
+}
+
 const FAM_KEY = 'avisos_familias';
 function famStore() { const a = loadStore(FAM_KEY, []); return Array.isArray(a) ? a : []; }
 function famGuardar(a) { saveStore(FAM_KEY, a || []); }
@@ -4843,9 +4938,13 @@ function famEnviar() {
   }
   // queda en el historial del docente
   const arr = famStore();
-  arr.push({ id: 'F' + Date.now(), titulo: (ti ? String(ti.value || '').trim() : '') || '(sin título)',
-    mensaje: mensaje, curso: label, fecha: hoyISO(), familias: datos.con.length });
+  const aviso = { id: 'F' + Date.now(), titulo: (ti ? String(ti.value || '').trim() : '') || '(sin título)',
+    mensaje: mensaje, curso: label, fecha: hoyISO(), familias: datos.con.length,
+    docente: (currentUser && currentUser.name) || '' };
+  arr.push(aviso);
   famGuardar(arr);
+  // ☁️ queda también en la planilla (se ve desde cualquier aparato)
+  try { famSubir_(aviso, () => { }); } catch (e) { }
   waListaModal_('Aviso a las familias · ' + (label || 'mi curso'), famTexto_(ti ? ti.value : '', mensaje), datos);
 }
 
@@ -9265,13 +9364,13 @@ function renderMensajes(){
   const all=loadStore('mensajes',[]);
   if(isDoc){
     const dee=all.filter(m=>m.de==='padre');
-    const porAlumno=[...new Set(dee.map(m=>m.alumnoId))];
+    const porAlumno=[...new Set(dee.map(m=>String(m.alumnoId)))];
     const sel=window.msgSelAlumno||porAlumno[0];
     if(sel) window.msgSelAlumno=sel;
-    const hilo=all.filter(m=>m.alumnoId===sel);
+    const hilo=all.filter(m=>String(m.alumnoId)===String(sel));
     return `<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px"><div><div class="card-title">✉️ Mensajes de padres</div><div class="card-sub">Bandeja de la profe — puede responder</div></div><span class="pill pill-blue">${dee.filter(m=>!m.leido).length} sin leer</span></div>
       <div class="grid2" style="margin-top:12px"><div>
-        ${porAlumno.length? porAlumno.map((al,i)=>{ const h=all.filter(m=>m.alumnoId===al); const last=h[h.length-1]; return `<div class="list-item" style="cursor:pointer;background:${al===sel?'#EFF6FF':'white'}" onclick="window.msgSelAlumno='${al}';navigate('mensajes')"><span style="font-size:20px">👪</span><div style="flex:1"><b style="font-size:13px">${last?last.alumnoNombre:al}</b><br><span style="font-size:11px;color:var(--muted)">${last?last.texto.slice(0,45)+(last.texto.length>45?'…':''):''}</span></div>${last&&last.de==='padre'&&!last.leido?'<span class="badge-count">1</span>':''}</div>`}).join('') : `<p style="font-size:13px;color:var(--muted);padding:12px">Sin mensajes de padres todavía.</p>`}
+        ${porAlumno.length? porAlumno.map((al,i)=>{ const h=all.filter(m=>String(m.alumnoId)===String(al)); const last=h[h.length-1]; return `<div class="list-item" style="cursor:pointer;background:${al===sel?'#EFF6FF':'white'}" onclick="window.msgSelAlumno='${al}';navigate('mensajes')"><span style="font-size:20px">👪</span><div style="flex:1"><b style="font-size:13px">${last?last.alumnoNombre:al}</b><br><span style="font-size:11px;color:var(--muted)">${last?last.texto.slice(0,45)+(last.texto.length>45?'…':''):''}</span></div>${last&&last.de==='padre'&&!last.leido?'<span class="badge-count">1</span>':''}</div>`}).join('') : `<p style="font-size:13px;color:var(--muted);padding:12px">Sin mensajes de padres todavía.</p>`}
       </div>
       <div style="border:1px solid var(--border);border-radius:12px;padding:12px;background:#FAFBFC;min-height:220px;display:flex;flex-direction:column">
         <b style="font-size:13px">${hilo.length? hilo[0].alumnoNombre : 'Conversación'}</b>
@@ -9281,9 +9380,9 @@ function renderMensajes(){
   }
   // PADRE / ESTUDIANTE
   const miId = isPadre ? (currentUser.hijoId||currentUser.ci) : currentUser.codigo;
-  const hilo=all.filter(m=>m.alumnoId===miId);
+  const hilo=all.filter(m=>String(m.alumnoId)===String(miId));
   // marcar leídos
-  if(hilo.some(m=>m.de==='docente'&&!m.leido)){ const up=all.map(m=>(m.alumnoId===miId&&m.de==='docente')?{...m,leido:true}:m); saveStore('mensajes',up); }
+  if(hilo.some(m=>m.de==='docente'&&!m.leido)){ const up=all.map(m=>(String(m.alumnoId)===String(miId)&&m.de==='docente')?{...m,leido:true}:m); saveStore('mensajes',up); }
   return `<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px"><div><div class="card-title">✉️ Mensajes con la maestra</div><div class="card-sub">Único lugar donde usted puede escribir • Prof. María González • Matemática</div></div><span class="pill pill-green">✅ Permitido para padres</span></div>
     <div style="margin:12px 0;background:#F0FDF4;border:1px solid #BBF7D0;padding:9px 12px;border-radius:10px;font-size:12px">✉️ Puede escribir consultas sobre <b>${isPadre? currentUser.hijo : 'sus tareas'}</b>: justificar una falta, preguntar por una nota o por el uniforme. La maestra responde aquí mismo.</div>
     <div style="border:1px solid var(--border);border-radius:12px;padding:12px;background:#FAFBFC;min-height:240px;max-height:340px;overflow:auto">
@@ -9305,6 +9404,7 @@ function enviarMensajePadre(){
   const arr=loadStore('mensajes',[]);
   arr.push({id:Date.now(), de:isPadre?'padre':'estudiante', autor:currentUser.name+(isPadre?' (padre/madre)':' (estudiante)'), texto:t.trim(), fecha:new Date().toLocaleString('es-PY',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}), alumnoId: isPadre?(currentUser.hijoId||currentUser.ci):currentUser.codigo, alumnoNombre: isPadre? currentUser.hijo : currentUser.name, leido:false});
   saveStore('mensajes',arr);
+  try { msgSubir_(arr[arr.length-1], () => {}); } catch(e) { }        // ☁️ a la planilla
   const nt=loadStore('notifs',[]); nt.unshift({id:Date.now(), titulo:'✉️ Mensaje de '+currentUser.name, desc:t.trim().slice(0,80), fecha:'Ahora', unread:true, para:'Prof. '+(currentUser.detail?'docente':'María González')}); saveStore('notifs',nt);
   navigate('mensajes'); toast('✅ Mensaje enviado a la maestra');
 }
@@ -9315,7 +9415,9 @@ function enviarMensajeDoc(alumnoId){
   const arr=loadStore('mensajes',[]);
   const ref=arr.find(m=>m.alumnoId===alumnoId);
   arr.push({id:Date.now(), de:'docente', autor:currentUser.name, texto:t.trim(), fecha:new Date().toLocaleString('es-PY',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}), alumnoId, alumnoNombre: ref?ref.alumnoNombre:alumnoId, leido:false});
-  saveStore('mensajes',arr); navigate('mensajes'); toast('✅ Respuesta enviada al padre');
+  saveStore('mensajes',arr);
+  try { msgSubir_(arr[arr.length-1], () => {}); } catch(e) { }        // ☁️ a la planilla
+  navigate('mensajes'); toast('✅ Respuesta enviada al padre');
 }
 
 function toast(m){ const t=document.getElementById('toast'); t.textContent=m; t.style.display='block'; setTimeout(()=>t.style.display='none',2800); }
@@ -9407,5 +9509,5 @@ let deferredPrompt=null; window.addEventListener('beforeinstallprompt',e=>{e.pre
 function promptInstall(){ if(deferredPrompt) deferredPrompt.prompt(); else toast('📲 Menú ⋮ → Agregar a pantalla principal'); }
 </script>
 <div id="printArea"></div>
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a53d550f1d1c35d8',t:'MTc5MzU2MTYxNw=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a53d550f1d1c35d8',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a53dcda5f82cf179',t:'MTc5MzU2NjU1Nw=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a53dcda5f82cf179',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
