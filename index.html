@@ -279,7 +279,7 @@ body{padding-bottom:env(safe-area-inset-bottom)}
 
     <div class="pt-foot">
       <b>Portal Educativo 1.281</b> · uso oficial de la escuela<br>
-      Funciona sin internet en el celular · <span class="pt-ver" id="selloVersion">PWA v3.63</span>
+      Funciona sin internet en el celular · <span class="pt-ver" id="selloVersion">PWA v3.64</span>
     </div>
   </div>
 </div>
@@ -2179,6 +2179,7 @@ function buildSidebar(){
     items=[
       {id:'dashboard', ic:'📊', label:'Panel', sub:'Mis materias'},
       {id:'asistencia', ic:'✅', label:'Asistencia', sub:'Mi curso'},
+      {id:'familias', ic:'📢', label:'Aviso a familias', sub:'Por WhatsApp'},
       {id:'actividades', ic:'✨', label:'Tareas', sub:'Mis materias'},
       {id:'avisos', ic:'📢', label:'Avisos de Dirección', sub:'Con acuse de lectura'},
       {id:'calificaciones', ic:'📊', label:'Calificaciones', sub:'Resultado PWA'},
@@ -2222,7 +2223,7 @@ function buildSidebar(){
   const NAV_CORTO={dashboard:'Panel',asistencia:'Asistencia',actividades:'Tareas',calificaciones:'Notas',
     informes:'Informes',mensajes:'Mensajes',avisos:'Avisos',cuadernillos:'Cuadern.',recursos:'Recursos',
     comunicados:'Comunic.',notifs:'Avisos',reportes:'Reportes',alumnos:'Alumnos',docentes:'Docentes',
-    movimientos:'Movim.',uniforme:'Uniforme',justificativos:'Justif.'};
+    movimientos:'Movim.',uniforme:'Uniforme',justificativos:'Justif.',familias:'Familias'};
   const corto = (it)=> NAV_CORTO[it.id] || String(it.label||'').split(' ')[0].slice(0,9);
   const hayMas = items.length > 5;
   const visibles = hayMas ? items.slice(0,4) : items.slice(0,5);
@@ -9406,5 +9407,5 @@ let deferredPrompt=null; window.addEventListener('beforeinstallprompt',e=>{e.pre
 function promptInstall(){ if(deferredPrompt) deferredPrompt.prompt(); else toast('📲 Menú ⋮ → Agregar a pantalla principal'); }
 </script>
 <div id="printArea"></div>
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a53d41827c3b8933',t:'MTc5MzU2MDgxNw=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a53d41827c3b8933',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a53d550f1d1c35d8',t:'MTc5MzU2MTYxNw=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a53d550f1d1c35d8',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
