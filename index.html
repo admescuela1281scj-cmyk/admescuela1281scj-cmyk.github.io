@@ -280,7 +280,7 @@ body{padding-bottom:env(safe-area-inset-bottom)}
 
     <div class="pt-foot">
       <b>Portal Educativo 1.281</b> · uso oficial de la escuela<br>
-      Funciona sin internet en el celular · <span class="pt-ver" id="selloVersion">PWA v3.74</span>
+      Funciona sin internet en el celular · <span class="pt-ver" id="selloVersion">PWA v3.75</span>
     </div>
   </div>
 </div>
@@ -440,7 +440,7 @@ function loadStore(k, fb){ try{ return JSON.parse(localStorage.getItem(k)) ?? fb
 // FORZAR ACTUALIZACIÓN A v2.1 - Tareas interactivas
 const APP_VERSION='2.2-corregida';
 /** 🏷️ sello que se muestra en el menú (dirección + versión de la PWA). Se cambia solo acá. */
-const APP_VERSION_UI='v3.74';
+const APP_VERSION_UI='v3.75';
 if(localStorage.getItem('app_version') !== APP_VERSION){
   localStorage.setItem('actividades', JSON.stringify(actividadesSeed));
   localStorage.setItem('entregasInteractivas', JSON.stringify([]));
@@ -632,10 +632,58 @@ function estNoEncontrado_(bruto) {
     </div>
     <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:10px;padding:9px 11px;margin-top:9px;font-size:11.5px;color:#1E3A8A">
       📊 Este celular tiene <b>${hay}</b> alumnos descargados${hay < 40 ? ' — <b>parece que nunca bajó el padrón completo</b>: la planilla debería traer a todos los de la escuela.' : '.'}
+      <br>🔎 Se preguntó al servidor por esta cédula: <b>tampoco la tiene</b>.
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
       <button class="btn btn-primary" onclick="closeModal();estReintentar_()">🔄 Buscar de nuevo en la planilla</button>
     </div>`);
+}
+
+/* ============================================================================
+ * 🔍 v3.75 — BUSCAR UNA SOLA CÉDULA EN EL SERVIDOR (sin bajar toda la lista)
+ *  Antes, si el celular no lograba bajar el padrón completo, el alumno no podía
+ *  entrar aunque su ficha ESTUVIERA en la planilla. Ahora, si no está en este
+ *  equipo, se le pregunta al servidor por esa cédula y se entra igual.
+ *  cb({alumno, deDonde})  o  cb(null)
+ * ========================================================================== */
+function estBuscarEnServidor_(ci, cb) {
+  cb = cb || function () { };
+  const buscar = soloDig(ci);
+  if (!buscar) return cb(null);
+  const urls = (typeof alumnoApiUrls_ === 'function' ? alumnoApiUrls_() : []);
+  let i = 0;
+  const siguiente = () => {
+    if (i >= urls.length) return cb(null);
+    const url = urls[i++];
+    const esNotas = (i === 1);
+    jsonpCall(url, { alumget: '1' }, (res) => {
+      const filas = (res && res.ok && res.filas) ? res.filas : null;
+      if (!filas) return siguiente();
+      const f = filas.find(x => soloDig(x[1]) === buscar);
+      if (!f) return siguiente();
+      cb({
+        alumno: {
+          codigo: String(f[0] || buscar), cedula: buscar, nombre: String(f[2] || ''),
+          grado: String(f[3] || ''), turno: String(f[4] || ''), seccion: String(f[5] || ''),
+          celPadre: String(f[6] || ''), pin: soloDig(f[7]), estado: String(f[8] || 'activo'),
+          curso: String(f[3] || '').replace(/\s*Grado/i, '') + ' ' + String(f[5] || '') + ' - ' + String(f[4] || '')
+        },
+        deDonde: esNotas ? 'planilla de notas' : 'módulo de comunicados'
+      });
+    }, { timeout: 30000 });
+  };
+  siguiente();
+}
+
+/** Guarda en el equipo una ficha que vino del servidor (para la próxima vez). */
+function estGuardarFicha_(al) {
+  try {
+    const arr = alumnosStore();
+    if (arr.some(x => soloDig(x.cedula) === soloDig(al.cedula))) return;
+    al.id = (Math.max(0, ...arr.map(x => x.id || 0)) + 1);
+    arr.push(al);
+    saveStore('adm_alumnos', arr);      // ⚠️ sin subir: esta ficha ya está en la planilla
+  } catch (e) { }
 }
 
 /** 🔄 Reintento forzado: obliga a bajar el padrón de la planilla (salta la espera de 30 s). */
@@ -709,6 +757,33 @@ function estElegir_(ci) {
   toast('🔑 Ahora escribí tu PIN de 4 dígitos y tocá Ingresar');
 }
 
+/** Arma la sesión del alumno y arranca la app (se usa con la ficha local o la del servidor). */
+function estEntrar_(al, bruto) {
+  const dig = t => String(t || '').replace(/[^0-9]/g, '');
+  const grado = al.grado || '9no Grado';
+  currentUser = {
+    role: 'estudiante',
+    name: al.nombre,
+    codigo: dig(al.cedula) || String(al.codigo || al.id || bruto),
+    cedula: dig(al.cedula) || dig(bruto),
+    cursoId: al.cursoId || '9A',
+    cursoNombre: al.cursoNombre || (grado + ' ' + (al.seccion || 'A')),
+    grado: grado,
+    turno: al.turno || '',
+    seccion: al.seccion || 'A'
+  };
+  console.log('loginEstudiante', currentUser);
+  // 📥 igual que el padre: el padrón real se trae solo, en silencio
+  try {
+    if (!padronRealListo_() && navigator.onLine !== false) {
+      setTimeout(() => { try { alumnosBajar(() => { }); } catch (e) { } }, 1200);
+    }
+    // 📢 v3.69: traer los avisos de la escuela para el curso del hijo
+    setTimeout(() => { try { famBajar_(() => { }); } catch (e) { } }, 1500);
+  } catch (e) { }
+  startApp();
+}
+
 function loginEstudiante(){
   try{
     const el1=document.getElementById('estCodigo'), el2=document.getElementById('estPin');
@@ -752,8 +827,41 @@ function loginEstudiante(){
       return;
     }
 
+    // 🔍 v3.75 — última red: preguntarle al servidor SOLO por esta cédula
     if(!al){
-      return estNoEncontrado_(bruto);
+      if(navigator.onLine === false) return estNoEncontrado_(bruto);
+      toast('🔎 Buscando tu cédula en la planilla…');
+      const escritoPin = dig(el2 && el2.value);
+      estBuscarEnServidor_(bruto, (hit) => {
+        if(!hit || !hit.alumno) return estNoEncontrado_(bruto);
+        const a2 = hit.alumno;
+        if(String(a2.estado || 'activo').toLowerCase() !== 'activo'){
+          return openModal(`<h3 style="margin:0 0 6px">🚪 Ficha no activa</h3>
+            <div style="font-size:12.5px;color:#334155"><b>${String(a2.nombre).replace(/</g, '&lt;')}</b> figura como
+              <b>${String(a2.estado).toUpperCase()}</b> en la escuela. Consultá en Dirección.</div>`);
+        }
+        // 🔑 se pide el PIN igual que siempre
+        const pinFicha2 = soloDig(a2.pin);
+        if(pinFicha2.length >= 3){
+          if(!escritoPin) return toast('🔑 Escribí tu PIN de 4 dígitos');
+          if(!pinIgual_(escritoPin, pinFicha2)){
+            return toast('🔑 El PIN no coincide con la ficha (' + pinBonito(pinFicha2) + '). Escribilo tal cual; si no lo recordás, pedilo en Dirección.');
+          }
+        }
+        estGuardarFicha_(a2);          // queda en el equipo para la próxima
+        estEntrar_(a2, bruto);         // y entra
+        toast('✅ Entraste · ficha traída de la ' + hit.deDonde);
+      });
+      return;
+    }
+
+    // 🚪 v3.75: si la ficha NO está activa, no entra (trasladado, retirado, egresado)
+    if (typeof alumnoActivo === 'function' && !alumnoActivo(al)) {
+      const est = String(al.estado || '');
+      return openModal(`<h3 style="margin:0 0 6px">🚪 Ficha no activa</h3>
+        <div style="font-size:12.5px;color:#334155"><b>${String(al.nombre || '').replace(/</g, '&lt;')}</b> figura como
+          <b>${est.toUpperCase() || 'BAJA'}</b> en la escuela${al.bajaFecha ? ' desde el ' + String(al.bajaFecha).slice(0, 10) : ''}.
+          Consultá en Dirección.</div>`);
     }
 
     // 🔑 PIN de la ficha (si el alumno tiene uno asignado, se exige)
@@ -767,27 +875,7 @@ function loginEstudiante(){
       }
     }
 
-    const grado = al.grado || '9no Grado';
-    currentUser={
-      role:'estudiante',
-      name: al.nombre,
-      codigo: dig(al.cedula) || String(al.codigo||al.id||bruto),
-      cedula: dig(al.cedula) || dig(bruto),
-      cursoId: al.cursoId || '9A',
-      cursoNombre: al.cursoNombre || (grado + ' ' + (al.seccion||'A')),
-      grado: grado,
-      turno: al.turno || ''
-    };
-    console.log('loginEstudiante',currentUser);
-    // 📥 igual que el padre: el padrón real se trae solo, en silencio
-    try {
-      if (!padronRealListo_() && navigator.onLine !== false) {
-        setTimeout(() => { try { alumnosBajar(() => { }); } catch (e) { } }, 1200);
-      }
-      // 📢 v3.69: traer los avisos de la escuela para el curso del hijo
-      setTimeout(() => { try { famBajar_(() => { }); } catch (e) { } }, 1500);
-    } catch (e) { }
-    startApp();
+    estEntrar_(al, bruto);
   }catch(e){ alert('Error estudiante: '+e.message); console.error(e); }
 }
 /* ============================================================
@@ -10125,5 +10213,5 @@ let deferredPrompt=null; window.addEventListener('beforeinstallprompt',e=>{e.pre
 function promptInstall(){ if(deferredPrompt) deferredPrompt.prompt(); else toast('📲 Menú ⋮ → Agregar a pantalla principal'); }
 </script>
 <div id="printArea"></div>
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a577f2adf815f204',t:'MTc5NDE3NjI0Nw=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a577f2adf815f204',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a5780f1d68eb36f4',t:'MTc5NDE3NzQxMg=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a5780f1d68eb36f4',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
