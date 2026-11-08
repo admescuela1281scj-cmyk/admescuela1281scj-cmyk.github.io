@@ -279,7 +279,7 @@ body{padding-bottom:env(safe-area-inset-bottom)}
 
     <div class="pt-foot">
       <b>Portal Educativo 1.281</b> · uso oficial de la escuela<br>
-      Funciona sin internet en el celular · <span class="pt-ver" id="selloVersion">PWA v3.65</span>
+      Funciona sin internet en el celular · <span class="pt-ver" id="selloVersion">PWA v3.68</span>
     </div>
   </div>
 </div>
@@ -297,6 +297,9 @@ body{padding-bottom:env(safe-area-inset-bottom)}
 </div>
 <div class="top-actions">
 <span class="chip" id="userChip">👩‍🏫 María</span>
+<button class="btn" id="btnUpdate" title="Buscar si hay una versión nueva"
+  style="background:white;color:var(--navy);padding:8px 12px;border-radius:999px;font-weight:700"
+  onclick="appActualizar()">🔄 Actualizar</button>
 <button class="btn-install" id="btnInstall" onclick="promptInstall()">📲 Instalar PWA</button>
 <button class="btn" style="background:white;color:var(--navy);padding:8px 12px;border-radius:999px" onclick="logout()">Salir</button>
 </div>
@@ -435,6 +438,8 @@ function saveStore(k,v){ localStorage.setItem(k, JSON.stringify(v)); }
 function loadStore(k, fb){ try{ return JSON.parse(localStorage.getItem(k)) ?? fb }catch{return fb} }
 // FORZAR ACTUALIZACIÓN A v2.1 - Tareas interactivas
 const APP_VERSION='2.2-corregida';
+/** 🏷️ sello que se muestra en el menú (dirección + versión de la PWA). Se cambia solo acá. */
+const APP_VERSION_UI='v3.68';
 if(localStorage.getItem('app_version') !== APP_VERSION){
   localStorage.setItem('actividades', JSON.stringify(actividadesSeed));
   localStorage.setItem('entregasInteractivas', JSON.stringify([]));
@@ -2209,6 +2214,9 @@ function buildSidebar(){
   // y que ningún módulo se dibuje dos veces (pasó con Plataformas en v3.50)
   items = items.filter((it, i) => items.findIndex(x => x.id === it.id) === i);
   document.getElementById('sidebar').innerHTML=`<div style="display:flex;align-items:center;gap:10px;padding:8px 6px"><div class="avatar" style="background:${isDoc?'#DBEAFE':isEst?'#FEF3C7':'#DCFCE7'}">${currentUser.name.split(' ').map(w=>w[0]).slice(0,2).join('')}</div><div style="line-height:1.1"><b style="font-size:13px">${currentUser.name}</b><br><span style="font-size:11px;color:var(--muted)">${currentUser.detail||currentUser.cursoNombre||currentUser.hijo} • ${currentUser.role.toUpperCase()}</span></div></div>
+  <div style="font-size:10px;color:var(--muted);padding:2px 6px 8px;line-height:1.35;border-bottom:1px dashed var(--border);margin-bottom:6px">
+    🌐 ${(()=>{ try{ return location.hostname || 'este aparato'; }catch(e){ return 'este aparato'; } })()} · PWA ${(()=>{ try{ return String(APP_VERSION_UI||''); }catch(e){ return ''; } })()}
+  </div>
   <div class="menu-label">Menú PWA</div>
   ${items.map(it=>`<button class="menu-btn ${it.id===currentView?'active':''}" onclick="navigate('${it.id}')"><span class="ic">${it.ic}</span><span style="line-height:1.1"><span style="display:block">${it.label}</span><span style="font-size:11px;color:var(--muted);font-weight:500">${it.sub}</span></span>${it.id==='notifs'?`<span class="badge-count">${loadStore('notifs',[]).filter(n=>n.unread).length}</span>`:''}</button>`).join('')}
   ${currentUser.role==='padre'
@@ -4747,7 +4755,8 @@ function famSubir_(av, cb) {
   if (!url) return cb(false, 'Sin enlace del módulo');
   const d = b64Json_([{ id: String(av.id || ''), fecha: String(av.fecha || ''), curso: String(av.curso || ''),
     titulo: String(av.titulo || ''), mensaje: String(av.mensaje || ''), docente: String(av.docente || ''),
-    familias: Number(av.familias || 0), estado: 'ACTIVO' }]);
+    familias: Number(av.familias || 0), estado: 'ACTIVO',
+    destino: String(av.destino || 'CURSO').toUpperCase(), alumno: String(av.alumno || '') }]);
   jsonpCall(url, { famsave: '1', d: d }, (res) => {
     cb(!!(res && res.ok), res);
   }, { timeout: 45000 });
@@ -4765,7 +4774,8 @@ function famBajar_(cb) {
     filas.forEach(f => {
       const id = String(f[0] || ''); if (!id || vistos.has(id)) return;
       arr.push({ id: id, fecha: String(f[1] || ''), curso: String(f[2] || ''), titulo: String(f[3] || ''),
-        mensaje: String(f[4] || ''), docente: String(f[5] || ''), familias: Number(f[6] || 0), estado: String(f[7] || 'ACTIVO') });
+        mensaje: String(f[4] || ''), docente: String(f[5] || ''), familias: Number(f[6] || 0),
+        estado: String(f[7] || 'ACTIVO'), destino: String(f[8] || 'CURSO').toUpperCase(), alumno: String(f[9] || '') });
       vistos.add(id); nuevos++;
     });
     if (nuevos) famGuardar(arr);
@@ -4829,37 +4839,113 @@ const FAM_PLANTILLAS = [
   { id: 'TAREA', ic: '📚', t: 'Tarea', txt: 'Buen día. La tarea asignada es: [detalle]. Debe entregarse el [fecha]. Está también en la app. Gracias.' },
   { id: 'MATERIAL', ic: '✏️', t: 'Pedir material', txt: 'Buen día. Les pido enviar con sus hijos: [material]. Gracias.' },
   { id: 'FALTA', ic: '⚠️', t: 'Falta / retiro', txt: 'Buen día. Les escribo por la asistencia de [alumno]: [detalle]. Por favor confirmar el motivo. Gracias.' },
-  { id: 'FELICITACION', ic: '🎉', t: 'Felicitación', txt: 'Buen día. Quiero felicitar a [alumno] por [motivo]. Es un orgullo tenerlo/a en clase. Gracias.' }
+  { id: 'FELICITACION', ic: '🎉', t: 'Felicitación', txt: 'Buen día. Quiero felicitar a [alumno] por [motivo]. Es un orgullo tenerlo/a en clase. Gracias.' },
+  { id: 'CONDUCTA', ic: '📣', t: 'Conducta', txt: 'Buen día. Les escribo por el comportamiento de [alumno] en clase: [detalle]. Quisiera conversarlo con ustedes. Gracias.' }
 ];
 
-/** Texto completo del aviso del docente. */
-function famTexto_(titulo, mensaje) {
+/** Texto completo del aviso del docente.
+ *  Si se manda a UN alumno, [alumno] se cambia por su nombre y se agrega el renglón «Alumno:». */
+function famTexto_(titulo, mensaje, alumno) {
   const cab = '📢 ESCUELA BÁSICA N° 1.281 «SAGRADO CORAZÓN DE JESÚS» · KATUETÉ';
   const t = String(titulo || '').trim();
-  const m = String(mensaje || '').trim();
-  return cab + '\n\n' + (t ? t + '\n\n' : '') + m + '\n\n' + famFirma_();
+  const nom = String(alumno || '').trim();
+  let m = String(mensaje || '').trim();
+  if (nom) m = m.replace(/\[alumno\]/gi, nom);
+  const conNombre = nom && m.toUpperCase().indexOf(nom.toUpperCase()) < 0;
+  return cab + '\n\n' + (t ? t + '\n\n' : '') +
+    (conNombre ? 'Alumno: ' + nom + '\n\n' : '') + m + '\n\n' + famFirma_();
+}
+
+/* ================== 👥 TODO EL CURSO  ·  👤 UN SOLO ALUMNO ================== */
+/** Curso elegido en el selector, como objeto {grado, turno, seccion}. */
+function famCursoDeLabel_(label) {
+  const lista = (typeof asisCursosDisponibles === 'function' ? asisCursosDisponibles() : []);
+  const c = lista.find(x => x.label === label);
+  if (c) return c;
+  const t = String(label || '');
+  const m = t.match(/Sec\.\s*([AB])/i);
+  return { label: t, grado: t.split('·')[0].trim(), seccion: m ? m[1].toUpperCase() : '' };
+}
+
+/** Alumnos activos del curso elegido (para el selector de «un solo alumno»). */
+function famAlumnosDelCurso_(label) {
+  const c = famCursoDeLabel_(label);
+  const arr = (typeof alumnosStore === 'function' ? alumnosStore() : []).filter(a => alumnoActivo(a));
+  return arr.filter(a => {
+    if (c.grado && String(a.grado || '') !== String(c.grado)) return false;
+    if (c.turno && String(a.turno || '') !== String(c.turno)) return false;
+    if (c.seccion && String(a.seccion || 'A').toUpperCase() !== String(c.seccion).toUpperCase()) return false;
+    return true;
+  }).sort((x, y) => String(x.nombre || '').localeCompare(String(y.nombre || ''), 'es'));
+}
+
+/** Cambia entre «todo el curso» y «un solo alumno» (sin perder lo escrito). */
+function famModoSet_(modo) {
+  window.__famModo = (modo === 'alumno') ? 'alumno' : 'todos';
+  try {
+    const c = document.getElementById('appContent');
+    if (c && currentView === 'familias') c.innerHTML = renderFamilias();
+    famVistaPrevia();
+  } catch (e) { }
+}
+
+/** Alumno elegido (objeto) o null si el modo es «todo el curso». */
+function famAlumnoElegido_() {
+  if ((window.__famModo || 'todos') !== 'alumno') return null;
+  const sel = document.getElementById('famAlumno');
+  const ci = sel ? String(sel.value || '') : '';
+  if (!ci) return null;
+  const arr = (typeof alumnosStore === 'function' ? alumnosStore() : []);
+  return arr.find(a => String(a.cedula || a.codigo || '').replace(/[^0-9]/g, '') === ci.replace(/[^0-9]/g, '')) || null;
 }
 
 /** Pantalla: el docente escribe su aviso y lo manda a las familias de su curso. */
 function renderFamilias() {
   const lista = (typeof asisCursosDisponibles === 'function' ? asisCursosDisponibles() : []);
   const cursoAuto = (typeof asisEtiqueta === 'function') ? asisEtiqueta() : '';
-  const opts = lista.map(c => `<option value="${c.label}" ${c.label === cursoAuto ? 'selected' : ''}>${c.label}</option>`).join('')
+  const labelSel = window.__famCurso || cursoAuto || (lista[0] ? lista[0].label : '');
+  const opts = lista.map(c => `<option value="${c.label}" ${c.label === labelSel ? 'selected' : ''}>${c.label}</option>`).join('')
     || `<option value="${cursoAuto || 'GENERAL'}">${cursoAuto || 'Mi curso'}</option>`;
+  const modo = window.__famModo || 'todos';
+  const alumnos = famAlumnosDelCurso_(labelSel);
+  const ciSel = window.__famCi || (alumnos[0] ? String(alumnos[0].cedula || alumnos[0].codigo || '') : '');
+  const optsAl = alumnos.map(a => {
+    const ci = String(a.cedula || a.codigo || '');
+    return `<option value="${ci}" ${ci === ciSel ? 'selected' : ''}>${a.nombre}${a.celPadre ? '' : ' — ⚠️ sin celular'}</option>`;
+  }).join('') || `<option value="">(este curso no tiene alumnos cargados)</option>`;
   const hist = famStore().slice().reverse().slice(0, 8);
+  const btnModo = (m, ic, t, sub) => `<button class="btn ${modo === m ? 'btn-primary' : 'btn-ghost'}"
+      style="flex:1;min-width:150px;justify-content:flex-start;text-align:left;padding:9px 12px"
+      onclick="famModoSet_('${m}')">
+      <span style="font-size:17px">${ic}</span>
+      <span style="line-height:1.15"><b style="display:block;font-size:12.5px">${t}</b>
+        <span style="font-size:10.5px;opacity:.85">${sub}</span></span></button>`;
 
   return `<div class="card">
     <div class="card-title" style="font-size:15px">📢 Aviso a las familias</div>
     <div class="card-sub">Les llega por <b>WhatsApp</b>, al celular del padre/madre que está cargado en el padrón.
-      Un solo mensaje por familia: si hay dos hermanos, no se manda dos veces.</div>
+      Si hay dos hermanos en la misma casa, el mensaje va <b>una sola vez</b>.</div>
 
-    <div style="display:flex;gap:6px;flex-wrap:wrap;margin:12px 0 8px">
-      ${FAM_PLANTILLAS.map(p => `<button class="btn btn-ghost" style="padding:5px 9px;font-size:11.5px"
-        onclick="famPlantilla('${p.id}')">${p.ic} ${p.t}</button>`).join('')}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 10px">
+      ${btnModo('todos', '👥', 'Todo el curso', 'Para todos los padres del curso')}
+      ${btnModo('alumno', '👤', 'Un solo alumno', 'Para la familia de un alumno')}
     </div>
 
     <label style="font-size:12px;font-weight:700">Curso</label>
-    <select id="famCurso" class="select" style="margin:4px 0 10px">${opts}</select>
+    <select id="famCurso" class="select" style="margin:4px 0 10px" onchange="window.__famCurso=this.value;window.__famCi='';famModoSet_(window.__famModo||'todos')">${opts}</select>
+
+    ${modo === 'alumno' ? `<label style="font-size:12px;font-weight:700">Alumno</label>
+      <select id="famAlumno" class="select" style="margin:4px 0 4px" onchange="window.__famCi=this.value;famVistaPrevia()">${optsAl}</select>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:10px">
+        Ejemplos: ${alumnos.slice(0, 3).map(a => String(a.nombre || '').split(',')[0]).join(' · ') || 'sin alumnos'}…
+        El aviso le llega <b>solo a esa familia</b>.</div>`
+      : `<div style="font-size:11px;color:var(--muted);margin-bottom:10px">
+        Se abre la lista con <b>una familia por renglón</b> y le vas tocando enviar a cada una.</div>`}
+
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 8px">
+      ${FAM_PLANTILLAS.map(p => `<button class="btn btn-ghost" style="padding:5px 9px;font-size:11.5px"
+        onclick="famPlantilla('${p.id}')">${p.ic} ${p.t}</button>`).join('')}
+    </div>
 
     <label style="font-size:12px;font-weight:700">Título (opcional)</label>
     <input id="famTitulo" class="input" placeholder="Ej.: Reunión de padres" style="margin:4px 0 10px">
@@ -4867,12 +4953,14 @@ function renderFamilias() {
     <label style="font-size:12px;font-weight:700">Mensaje</label>
     <textarea id="famMensaje" class="textarea" rows="5" placeholder="Escribí el aviso…" style="margin:4px 0 6px"
       oninput="famVistaPrevia()"></textarea>
+    ${modo === 'alumno' ? `<div style="font-size:11px;color:#1D4ED8;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:8px;padding:7px 9px;margin-bottom:8px">
+      💡 Si escribís <b>[alumno]</b> en el mensaje, se cambia solo por el nombre del alumno elegido.</div>` : ''}
 
     <div id="famPrev" style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:10px;
-      font-size:11.5px;color:#334155;white-space:pre-wrap;margin-bottom:10px">${famTexto_('', '').replace(/</g, '&lt;')}</div>
+      font-size:11.5px;color:#334155;white-space:pre-wrap;margin-bottom:10px">${famTexto_('', '', '').replace(/</g, '&lt;')}</div>
 
     <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <button class="btn btn-whatsapp" onclick="famEnviar()">💬 Ver familias y enviar</button>
+      <button class="btn btn-whatsapp" onclick="famEnviar()">${modo === 'alumno' ? '💬 Enviar a esa familia' : '💬 Ver familias y enviar'}</button>
       <button class="btn btn-ghost" onclick="famCopiar()">📋 Copiar el mensaje</button>
     </div>
     <div style="font-size:11px;color:var(--muted);margin-top:8px">
@@ -4883,15 +4971,18 @@ function renderFamilias() {
 
   <div class="card" style="margin-top:14px">
     <div class="card-title">🗂️ Mis últimos avisos</div>
-    ${hist.length ? hist.map(a => `<div class="list-item" style="align-items:flex-start">
-        <span style="font-size:20px">📢</span>
+    ${hist.length ? hist.map(a => {
+      const esUno = String(a.destino || (a.alumno ? 'ALUMNO' : 'CURSO')).toUpperCase() === 'ALUMNO';
+      return `<div class="list-item" style="align-items:flex-start">
+        <span style="font-size:20px">${esUno ? '👤' : '👥'}</span>
         <div style="flex:1">
           <b style="font-size:12.5px">${a.titulo || '(sin título)'}</b>
-          <div style="font-size:11px;color:var(--muted)">${a.fecha} · ${a.curso || 'mi curso'}</div>
+          <div style="font-size:11px;color:var(--muted)">${a.fecha} · ${esUno ? ('Solo ' + (a.alumno || 'un alumno')) : (a.curso || 'mi curso')}</div>
           <div style="font-size:11.5px;color:#334155;margin-top:3px">${String(a.mensaje || '').slice(0, 120).replace(/</g, '&lt;')}</div>
         </div>
         <button class="btn btn-ghost" style="padding:4px 8px;font-size:11px" onclick="famReenviar('${a.id}')">💬 Reenviar</button>
-      </div>`).join('') : `<div class="card-sub">Todavía no mandaste avisos. Los que envíes quedan acá para reenviarlos.</div>`}
+      </div>`;
+    }).join('') : `<div class="card-sub">Todavía no mandaste avisos. Los que envíes quedan acá para reenviarlos.</div>`}
   </div>`;
 }
 
@@ -4911,24 +5002,53 @@ function famVistaPrevia() {
   const ta = document.getElementById('famMensaje'), ti = document.getElementById('famTitulo');
   const caja = document.getElementById('famPrev');
   if (!caja) return;
-  caja.textContent = famTexto_(ti ? ti.value : '', ta ? ta.value : '');
+  const al = famAlumnoElegido_();
+  caja.textContent = famTexto_(ti ? ti.value : '', ta ? ta.value : '', al ? al.nombre : '');
 }
 
 /** Copia el aviso al portapapeles. */
 function famCopiar() {
   const ta = document.getElementById('famMensaje'), ti = document.getElementById('famTitulo');
-  window.__waMsgActual = famTexto_(ti ? ti.value : '', ta ? ta.value : '');
+  const al = famAlumnoElegido_();
+  window.__waMsgActual = famTexto_(ti ? ti.value : '', ta ? ta.value : '', al ? al.nombre : '');
   waCopiarTexto_();
 }
 
-/** Muestra las familias del curso con el aviso ya escrito (y lo guarda en el historial). */
+/** Manda el aviso: a TODO el curso o a UN solo alumno (y lo guarda en el historial). */
 function famEnviar() {
   const ti = document.getElementById('famTitulo'), ta = document.getElementById('famMensaje'), sel = document.getElementById('famCurso');
   const mensaje = ta ? String(ta.value || '').trim() : '';
   if (!mensaje) return toast('Escribí el mensaje del aviso');
   const label = sel ? sel.value : '';
-  const lista = (typeof asisCursosDisponibles === 'function' ? asisCursosDisponibles() : []);
-  const curso = lista.find(x => x.label === label) || { grado: label };
+  const curso = famCursoDeLabel_(label);
+  const titulo = (ti ? String(ti.value || '').trim() : '') || '(sin título)';
+  const modo = window.__famModo || 'todos';
+
+  /* ---------- 👤 UN SOLO ALUMNO ---------- */
+  if (modo === 'alumno') {
+    const al = famAlumnoElegido_();
+    if (!al) return toast('Elegí el alumno al que le querés avisar');
+    const nombre = String(al.nombre || '').trim();
+    const tel = waTel_(al.celPadre);
+    const texto = famTexto_(ti ? ti.value : '', mensaje, nombre);
+    if (!tel) {
+      return openModal(`<h3>💬 Avisar a una familia</h3>
+        <div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:10px;font-size:12.5px;color:#92400E">
+          <b>${nombre}</b> no tiene el <b>celular del padre</b> cargado, así que no se puede mandar por WhatsApp.</div>
+        <div style="font-size:11.5px;color:#475569;margin-top:8px">Se completa en <b>👥 Alumnos → ✏️</b> (lo hace Dirección).<br>
+          Mientras tanto podés usar <b>📋 Copiar el mensaje</b>.</div>`);
+    }
+    const avisoUnico = { id: 'F' + Date.now(), titulo: titulo, mensaje: mensaje, curso: label,
+      fecha: hoyISO(), familias: 1, destino: 'ALUMNO', alumno: nombre,
+      docente: (currentUser && currentUser.name) || '' };
+    const arrU = famStore(); arrU.push(avisoUnico); famGuardar(arrU);
+    try { famSubir_(avisoUnico, () => { }); } catch (e) { }
+    waListaModal_('Aviso para la familia de ' + nombre, texto,
+      { con: [{ alumno: nombre, cel: al.celPadre || '', tel: tel, curso: label }], sin: [] });
+    return;
+  }
+
+  /* ---------- 👥 TODO EL CURSO ---------- */
   const datos = waPadresDeCurso_(curso);
   if (!datos.con.length) {
     return openModal(`<h3>💬 Avisar a las familias</h3>
@@ -4938,8 +5058,8 @@ function famEnviar() {
   }
   // queda en el historial del docente
   const arr = famStore();
-  const aviso = { id: 'F' + Date.now(), titulo: (ti ? String(ti.value || '').trim() : '') || '(sin título)',
-    mensaje: mensaje, curso: label, fecha: hoyISO(), familias: datos.con.length,
+  const aviso = { id: 'F' + Date.now(), titulo: titulo, mensaje: mensaje, curso: label,
+    fecha: hoyISO(), familias: datos.con.length, destino: 'CURSO', alumno: '',
     docente: (currentUser && currentUser.name) || '' };
   arr.push(aviso);
   famGuardar(arr);
@@ -4948,12 +5068,21 @@ function famEnviar() {
   waListaModal_('Aviso a las familias · ' + (label || 'mi curso'), famTexto_(ti ? ti.value : '', mensaje), datos);
 }
 
-/** Reenvía un aviso guardado. */
+/** Reenvía un aviso guardado (respeta si era para todo el curso o para un alumno). */
 function famReenviar(id) {
   const a = famStore().find(x => String(x.id) === String(id));
   if (!a) return toast('No encontré ese aviso');
-  const lista = (typeof asisCursosDisponibles === 'function' ? asisCursosDisponibles() : []);
-  const curso = lista.find(x => x.label === a.curso) || { grado: a.curso };
+  const esUno = String(a.destino || (a.alumno ? 'ALUMNO' : 'CURSO')).toUpperCase() === 'ALUMNO';
+  if (esUno) {
+    const arr = (typeof alumnosStore === 'function' ? alumnosStore() : []);
+    const al = arr.find(x => String(x.nombre || '') === String(a.alumno || ''))
+      || arr.find(x => String(x.cedula || '') === String(a.celula || ''));
+    const tel = al ? waTel_(al.celPadre) : '';
+    if (!al || !tel) return toast('⚠️ Ese alumno ya no está o no tiene celular cargado');
+    return waListaModal_('Reenviar · ' + a.alumno, famTexto_(a.titulo, a.mensaje, a.alumno),
+      { con: [{ alumno: al.nombre, cel: al.celPadre || '', tel: tel, curso: a.curso }], sin: [] });
+  }
+  const curso = famCursoDeLabel_(a.curso);
   waListaModal_('Reenviar · ' + (a.curso || 'mi curso'), famTexto_(a.titulo, a.mensaje), waPadresDeCurso_(curso));
 }
 
@@ -9420,6 +9549,52 @@ function enviarMensajeDoc(alumnoId){
   navigate('mensajes'); toast('✅ Respuesta enviada al padre');
 }
 
+/* ===================== 🔄 BUSCAR ACTUALIZACIÓN =====================
+ *  Evita el clásico «subí la versión nueva y sigo viendo la vieja».
+ *  Borra las copias guardadas por el navegador (Cache Storage) y recarga
+ *  con una dirección nueva para que nada salga de la caché.
+ *  ⚠️ NO desinstala el service worker de OneSignal: las notificaciones
+ *     siguen funcionando igual.
+ * ================================================================= */
+function appActualizar() {
+  const b = document.getElementById('btnUpdate');
+  if (b) { b.disabled = true; b.textContent = '⏳ Buscando…'; }
+  const antes = (typeof APP_VERSION_UI !== 'undefined') ? APP_VERSION_UI : '';
+  try { localStorage.setItem('app_upd_antes', antes); } catch (e) { }
+  const recargar = () => {
+    try {
+      const u = new URL(location.href);
+      u.searchParams.set('u', String(Date.now()));
+      location.replace(u.toString());
+    } catch (e) { location.reload(); }
+  };
+  let hecho = false;
+  const seguir = () => { if (hecho) return; hecho = true; recargar(); };
+  setTimeout(seguir, 2500);                       // nunca se queda colgado
+  try {
+    if (typeof caches !== 'undefined' && caches.keys) {
+      caches.keys().then(ks => Promise.all(ks.map(k => caches.delete(k))))
+        .then(seguir).catch(seguir);
+    } else { seguir(); }
+  } catch (e) { seguir(); }
+}
+
+/** Al abrir, si veníamos de «🔄 Actualizar», avisa con qué versión quedó. */
+function appActualizarAviso() {
+  let antes = '';
+  try { antes = localStorage.getItem('app_upd_antes') || ''; } catch (e) { }
+  if (!antes) return;
+  try { localStorage.removeItem('app_upd_antes'); } catch (e) { }
+  const ahora = (typeof APP_VERSION_UI !== 'undefined') ? APP_VERSION_UI : '';
+  setTimeout(() => {
+    try {
+      toast(antes === ahora
+        ? '✅ Ya estás en la última versión (' + ahora + ')'
+        : '✅ Actualizado: ' + antes + ' → ' + ahora);
+    } catch (e) { }
+  }, 900);
+}
+
 function toast(m){ const t=document.getElementById('toast'); t.textContent=m; t.style.display='block'; setTimeout(()=>t.style.display='none',2800); }
 function openModal(h){ document.getElementById('modalBox').innerHTML=h+`<div style="text-align:right;margin-top:12px"><button class="btn btn-ghost" onclick="closeModal()">Cerrar</button></div>`; document.getElementById('modalBg').style.display='flex'; }
 function closeModal(){ document.getElementById('modalBg').style.display='none'; }
@@ -9505,9 +9680,10 @@ try{
     });
   }
 }catch(e){}
+try { appActualizarAviso(); } catch(e){}
 let deferredPrompt=null; window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e; const b=document.getElementById('btnInstall'); if(b) b.style.display='inline-flex';});
 function promptInstall(){ if(deferredPrompt) deferredPrompt.prompt(); else toast('📲 Menú ⋮ → Agregar a pantalla principal'); }
 </script>
 <div id="printArea"></div>
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a53dcda5f82cf179',t:'MTc5MzU2NjU1Nw=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a53dcda5f82cf179',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a577117dee4fe638',t:'MTc5NDE2NzAyNA=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a577117dee4fe638',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
