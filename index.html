@@ -279,7 +279,7 @@ body{padding-bottom:env(safe-area-inset-bottom)}
 
     <div class="pt-foot">
       <b>Portal Educativo 1.281</b> · uso oficial de la escuela<br>
-      Funciona sin internet en el celular · <span class="pt-ver" id="selloVersion">PWA v3.71</span>
+      Funciona sin internet en el celular · <span class="pt-ver" id="selloVersion">PWA v3.73</span>
     </div>
   </div>
 </div>
@@ -439,7 +439,7 @@ function loadStore(k, fb){ try{ return JSON.parse(localStorage.getItem(k)) ?? fb
 // FORZAR ACTUALIZACIÓN A v2.1 - Tareas interactivas
 const APP_VERSION='2.2-corregida';
 /** 🏷️ sello que se muestra en el menú (dirección + versión de la PWA). Se cambia solo acá. */
-const APP_VERSION_UI='v3.71';
+const APP_VERSION_UI='v3.73';
 if(localStorage.getItem('app_version') !== APP_VERSION){
   localStorage.setItem('actividades', JSON.stringify(actividadesSeed));
   localStorage.setItem('entregasInteractivas', JSON.stringify([]));
@@ -629,11 +629,26 @@ function estNoEncontrado_(bruto) {
       <b>2) La cédula está mal escrita</b><br>
       <span style="font-size:12px">Solo números, sin puntos ni guiones (si es extranjera, solo los números).</span>
     </div>
-    <div style="font-size:11.5px;color:#475569;margin-top:9px">En este celular hay <b>${hay}</b> alumnos descargados.</div>
+    <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:10px;padding:9px 11px;margin-top:9px;font-size:11.5px;color:#1E3A8A">
+      📊 Este celular tiene <b>${hay}</b> alumnos descargados${hay < 40 ? ' — <b>parece que nunca bajó el padrón completo</b>: la planilla debería traer a todos los de la escuela.' : '.'}
+    </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
-      <button class="btn btn-primary" onclick="closeModal();loginEstudiante()">🔄 Reintentar</button>
-      <button class="btn btn-ghost" onclick="closeModal()">Cerrar</button>
+      <button class="btn btn-primary" onclick="closeModal();estReintentar_()">🔄 Buscar de nuevo en la planilla</button>
     </div>`);
+}
+
+/** 🔄 Reintento forzado: obliga a bajar el padrón de la planilla (salta la espera de 30 s). */
+function estReintentar_() {
+  window.__padronTs = 0;
+  window.__bajandoPadron = false;
+  if (navigator.onLine === false) return toast('📴 Sin internet: conectate y volvé a intentar');
+  toast('⬇️ Buscando en la planilla…');
+  if (typeof alumnosBajar !== 'function') return loginEstudiante();
+  alumnosBajar((ok) => {
+    window.__bajandoPadron = false;
+    if (!ok) { toast('⚠️ No se pudo leer la planilla. Revisá la conexión.'); return loginEstudiante(); }
+    loginEstudiante();
+  });
 }
 
 function loginEstudiante(){
@@ -6129,6 +6144,46 @@ function alumnoApiUrl() {
   } catch (e) { return ''; }
 }
 
+/* ============================================================================
+ * 🛰️ v3.73 — EL PADRÓN TIENE DOS SERVIDORES
+ *  Antes solo se le pedía al servidor de NOTAS. Si ese no contesta (o contesta
+ *  «no conozco ese pedido»), el padrón quedaba vacío: el alumno y el padre no
+ *  podían entrar y «verificar» daba 0.
+ *  Ahora se prueba el de notas y, si falla, el módulo de comunicados (v2.4),
+ *  que también guarda la hoja ALUMNOS.
+ * ========================================================================== */
+function alumnoApiUrls_() {
+  const lista = [];
+  try { const a = alumnoApiUrl(); if (a) lista.push(a); } catch (e) { }
+  try { const b = (typeof comUrl === 'function' ? comUrl() : ''); if (b) lista.push(b); } catch (e) { }
+  return lista.filter((u, i) => u && lista.indexOf(u) === i);
+}
+
+/** Prueba servidor por servidor hasta que uno conteste de verdad. cb(ok, res, url) */
+function jsonpAlumno_(params, cb, opts) {
+  cb = cb || function () { };
+  opts = opts || {};
+  const urls = alumnoApiUrls_();
+  if (!urls.length) return cb(false, { ok: false, error: 'La PWA no tiene configurado el enlace de la planilla' }, '');
+  let i = 0, ultimo = null;
+  const siguiente = () => {
+    if (i >= urls.length) return cb(false, ultimo || { ok: false, error: 'Ningún servidor respondió' }, '');
+    const url = urls[i++];
+    jsonpCall(url, params, (res) => {
+      // ⚠️ un servidor que no conoce el pedido contesta {ok:true, ayuda:'…'}: NO sirve
+      const sirve = !!(res && res.ok && !res.ayuda && (res.filas || res.alumnos || res.agregados != null ||
+        res.total != null || res.cantidad != null || res.fichas != null));
+      if (sirve) {
+        window.__alumVia = (url === urls[0] ? 'notas' : 'comunicados');
+        return cb(true, res, url);
+      }
+      ultimo = res || { ok: false, error: 'Sin respuesta' };
+      siguiente();
+    }, { timeout: opts.timeout || 45000 });
+  };
+  siguiente();
+}
+
 /* ---------- empaquetado ---------- */
 function alumnoRegistro(a) {
   const sep = v => String(v == null ? '' : v).replace(/[|;]/g, ' ');
@@ -6158,8 +6213,28 @@ function alumnoTandas(arr, maximo) {
 
 /* ---------- estados de sincronización ---------- */
 function alumnosSyncEstado() { return loadStore('alumnos_sync', {}); }
-function alumnosMarcarSync(estado, detalle) {
-  saveStore('alumnos_sync', { estado: estado, cuando: new Date().toISOString(), detalle: detalle || '' });
+function alumnosMarcarSync(estado, detalle, confirmadas) {
+  const prev = loadStore('alumnos_sync', {});
+  const nuevo = { estado: estado, cuando: new Date().toISOString(), detalle: detalle || '' };
+  if (window.__alumVia) nuevo.via = window.__alumVia;
+  else if (prev.via) nuevo.via = prev.via;
+  if (confirmadas != null) nuevo.confirmadas = Number(confirmadas);
+  else if (prev.confirmadas != null && estado === 'ok') nuevo.confirmadas = prev.confirmadas;
+  saveStore('alumnos_sync', nuevo);
+}
+
+/** 🔎 Lee la planilla de vuelta y cuenta cuántas fichas quedaron de verdad. */
+function alumnosConfirmar(cb) {
+  cb = cb || function () { };
+  jsonpAlumno_({ alumget: '1' }, (ok2, res) => {
+    if (!ok2 || !res || !res.ok) return cb(false, null);
+    // si el servidor no devuelve la lista, NO se puede confirmar (pero tampoco se
+    // dice que falló la subida: se avisa «sin confirmar»)
+    if (!res.filas) { alumnosMarcarSync('ok', 'sin confirmar'); return cb(false, null); }
+    const n = res.filas.length;
+    alumnosMarcarSync(n ? 'ok' : 'err', n + ' fichas', n);
+    cb(true, n);
+  }, { timeout: 45000 });
 }
 function alumnosPendiente() { return loadStore('alumnos_pend', false); }
 function alumnosPendSet(v) { saveStore('alumnos_pend', !!v); }
@@ -6182,8 +6257,7 @@ function alumnosSubir(cb) {
     return cb(false, 'Ya hay una subida en curso; se repite al terminar');
   }
 
-  const url = alumnoApiUrl();
-  if (!url) { alumnosMarcarSync('sin_url'); return cb(false, 'La PWA no tiene configurado el enlace de la planilla'); }
+  if (!alumnoApiUrls_().length) { alumnosMarcarSync('sin_url'); return cb(false, 'La PWA no tiene configurado el enlace de la planilla'); }
 
   const arr = alumnosStore();
   if (!arr.length) return cb(false, 'No hay alumnos cargados');
@@ -6205,14 +6279,18 @@ function alumnosSubir(cb) {
     if (i >= tandas.length) {
       alumnosMarcarSync('ok', arr.length + ' fichas');
       alumnosPendSet(false);
-      return terminar(true, { fichas: arr.length, tandas: tandas.length });
+      // 🔎 se confirma leyendo la planilla: nada de «subido» sin comprobarlo
+      return alumnosConfirmar((okC, n) => {
+        terminar(true, { fichas: arr.length, tandas: tandas.length,
+          confirmadas: okC ? n : null, via: window.__alumVia || '' });
+      });
     }
     const esPrimera = (i === 0);
     const params = { alum: '1', d: tandas[i].join(';') };
     if (esPrimera) params.reiniciar = '1';      // la primera tanda reescribe todo
     i++;
-    jsonpCall(url, params, (res) => {
-      if (res && res.ok) { setTimeout(siguiente, 150); return; }
+    jsonpAlumno_(params, (ok2, res) => {
+      if (ok2 && res && res.ok) { setTimeout(siguiente, 150); return; }
       alumnosMarcarSync('err', (res && res.error) || 'sin respuesta');
       alumnosPendSet(true);
       terminar(false, (res && res.error) || 'La planilla no respondió');
@@ -6233,11 +6311,8 @@ function alumnosSubirSiPendiente(avisar) {
 /** Trae las fichas de la planilla y las mezcla con las locales. */
 function alumnosBajar(cb) {
   cb = cb || function () { };
-  const url = alumnoApiUrl();
-  if (!url) return cb(false, 'Sin enlace configurado');
-
-  jsonpCall(url, { alumget: '1' }, (res) => {
-    if (!res || !res.ok) return cb(false, (res && res.error) || 'La planilla no respondió');
+  jsonpAlumno_({ alumget: '1' }, (ok2, res) => {
+    if (!ok2 || !res || !res.ok) return cb(false, (res && res.error) || 'La planilla no respondió');
     const filas = res.filas || [];
     if (!filas.length) return cb(false, 'La hoja ALUMNOS está vacía');
 
@@ -6368,9 +6443,16 @@ function movimientosBajarUI() {
 function alumnosBadge() {
   const st = alumnosSyncEstado();
   const total = (typeof alumnosStore === 'function' ? alumnosStore().length : 0);
+  const via = st.via === 'comunicados' ? ' · módulo comunicados' : (st.via === 'notas' ? ' · planilla de notas' : '');
   if (alumnosPendiente()) return '<span class="pill pill-amber">📴 fichas pendientes de subir</span>';
   if (!st.estado) return '<span class="pill pill-gray">💾 solo en este equipo</span>';
-  if (st.estado === 'ok') return '<span class="pill pill-green">☁️ ' + total + ' fichas en la planilla</span>';
+  if (st.estado === 'ok') {
+    // ✅ solo se dice «en la planilla» si se CONFIRMÓ leyéndola de vuelta
+    if (st.confirmadas != null && Number(st.confirmadas) === total)
+      return '<span class="pill pill-green">☁️ ' + total + ' fichas confirmadas en la planilla' + via + '</span>';
+    return '<span class="pill pill-amber">☁️ enviadas ' + total + ' · sin confirmar</span>';
+  }
+  if (st.estado === 'err') return '<span class="pill pill-amber">⚠️ no subieron: ' + String(st.detalle || '').slice(0, 40) + '</span>';
   return '<span class="pill pill-amber">⚠️ revisar conexión</span>';
 }
 
@@ -6383,13 +6465,9 @@ function alumnosBadge() {
 /** Pide el padrón al servidor (cédula + nombre de cada alumno). */
 function padronTraer(cb) {
   cb = cb || function () { };
-  const url = alumnoApiUrl();
-  if (!url) { cb('La PWA no tiene configurado el enlace de la planilla'); return; }
-  jsonpCall(url, { padron: '1' }, (err, res) => {
-    if (err) { cb(err.kind === 'timeout'
-        ? 'La planilla tardó demasiado. Probá de nuevo (el primer arranque de Google es lento).'
-        : 'No se pudo leer la planilla.'); return; }
-    if (!res || !res.ok) { cb((res && res.error) || 'La planilla no respondió'); return; }
+  if (!alumnoApiUrls_().length) { cb('La PWA no tiene configurado el enlace de la planilla'); return; }
+  jsonpAlumno_({ padron: '1' }, (ok2, res) => {
+    if (!ok2 || !res || !res.ok) { cb((res && res.error) || 'La planilla no respondió'); return; }
     cb(null, res.alumnos || []);
   }, { timeout: 60000 });
 }
@@ -9904,5 +9982,5 @@ let deferredPrompt=null; window.addEventListener('beforeinstallprompt',e=>{e.pre
 function promptInstall(){ if(deferredPrompt) deferredPrompt.prompt(); else toast('📲 Menú ⋮ → Agregar a pantalla principal'); }
 </script>
 <div id="printArea"></div>
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a57781b72e63ad09',t:'MTc5NDE3MTYyMA=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a57781b72e63ad09',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a577b9697aa7a655',t:'MTc5NDE3MzkwMg=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a577b9697aa7a655',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
