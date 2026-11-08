@@ -245,8 +245,9 @@ body{padding-bottom:env(safe-area-inset-bottom)}
     </div>
 
     <div id="form-estudiante" class="pt-form" style="display:none">
-      <div style="font-size:12.5px;color:#334155;margin-bottom:8px">Escribí tu <b>cédula</b> y tu <b>PIN de 4 dígitos</b>.</div>
-      <input id="estCodigo" class="input" inputmode="numeric" placeholder="Tu cédula, sin puntos" style="margin:0 0 8px">
+      <div style="font-size:12.5px;color:#334155;margin-bottom:8px">Escribí tu <b>cédula</b> y tu <b>PIN de 4 dígitos</b>.<br>
+        <span style="font-size:11.5px;color:#64748B">¿No te acordás la cédula? Escribí tu <b>apellido</b> y elegí tu nombre de la lista.</span></div>
+      <input id="estCodigo" class="input" inputmode="text" placeholder="Tu cédula, sin puntos — o tu apellido" style="margin:0 0 8px">
       <input id="estPin" class="input" inputmode="numeric" maxlength="4" placeholder="PIN de 4 dígitos" style="margin:0 0 10px">
       <button class="btn btn-primary" style="width:100%;justify-content:center;padding:13px" onclick="loginEstudiante()">Ingresar como estudiante →</button>
       <div style="font-size:11px;color:#64748B;margin-top:8px">El PIN te lo entrega la escuela con la ficha. Si no lo tenés, pedilo en Dirección.</div>
@@ -279,7 +280,7 @@ body{padding-bottom:env(safe-area-inset-bottom)}
 
     <div class="pt-foot">
       <b>Portal Educativo 1.281</b> · uso oficial de la escuela<br>
-      Funciona sin internet en el celular · <span class="pt-ver" id="selloVersion">PWA v3.73</span>
+      Funciona sin internet en el celular · <span class="pt-ver" id="selloVersion">PWA v3.74</span>
     </div>
   </div>
 </div>
@@ -439,7 +440,7 @@ function loadStore(k, fb){ try{ return JSON.parse(localStorage.getItem(k)) ?? fb
 // FORZAR ACTUALIZACIÓN A v2.1 - Tareas interactivas
 const APP_VERSION='2.2-corregida';
 /** 🏷️ sello que se muestra en el menú (dirección + versión de la PWA). Se cambia solo acá. */
-const APP_VERSION_UI='v3.73';
+const APP_VERSION_UI='v3.74';
 if(localStorage.getItem('app_version') !== APP_VERSION){
   localStorage.setItem('actividades', JSON.stringify(actividadesSeed));
   localStorage.setItem('entregasInteractivas', JSON.stringify([]));
@@ -651,16 +652,78 @@ function estReintentar_() {
   });
 }
 
+/** 🔎 v3.74 — Buscar alumnos por nombre/apellido (para no depender de la cédula).
+ *  Devuelve hasta `max` coincidencias del padrón que tiene este equipo. */
+function estCoincidencias_(texto, max) {
+  const t = String(texto || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  if (t.length < 3) return [];
+  const arr = (typeof alumnosStore === 'function' ? alumnosStore() : []);
+  const partes = t.split(' ').filter(Boolean);
+  const puntuar = a => {
+    const n = String(a.nombre || '').toLowerCase();
+    let puntos = 0;
+    partes.forEach(p => { if (n.indexOf(p) >= 0) puntos += (n.indexOf(p) === 0 ? 3 : 1); });
+    return puntos;
+  };
+  return arr.map(a => ({ a: a, p: puntuar(a) }))
+    .filter(x => x.p > 0)
+    .sort((x, y) => y.p - x.p || String(x.a.nombre).localeCompare(String(y.a.nombre), 'es'))
+    .slice(0, max || 8)
+    .map(x => x.a);
+}
+
+/** Muestra los alumnos que coinciden para que el chico toque el suyo. */
+function estBuscarPorNombre_(texto) {
+  let lista = estCoincidencias_(texto, 8);
+  const pintar = (items, aviso) => openModal(`<h3 style="margin:0 0 4px">🔎 ¿Quién sos?</h3>
+    <div class="card-sub" style="margin-bottom:8px">Tocá tu nombre. Después escribí tu PIN de 4 dígitos.</div>
+    ${aviso ? `<div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:9px;padding:8px 10px;font-size:11.5px;color:#92400E;margin-bottom:8px">${aviso}</div>` : ''}
+    ${items.length ? items.map(a => `<button class="btn btn-ghost" style="width:100%;justify-content:flex-start;margin:4px 0;padding:9px 11px"
+        onclick="estElegir_('${String(a.cedula || a.codigo || '').replace(/[^0-9]/g, '')}')">
+        <span style="font-size:15px">🎓</span>
+        <span style="line-height:1.15;text-align:left"><b style="display:block;font-size:12.5px">${String(a.nombre || '').replace(/</g, '&lt;')}</b>
+          <span style="font-size:10.5px;color:var(--muted)">${a.grado || ''} ${a.seccion ? '· Sec. ' + a.seccion : ''}</span></span>
+      </button>`).join('')
+      : `<div style="font-size:12.5px;color:#991B1B;background:#FEF2F2;border:1px solid #FCA5A5;border-radius:9px;padding:9px 11px">
+          No aparece ningún alumno con «${String(texto).replace(/</g, '&lt;')}» en este celular.</div>`}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+      <button class="btn btn-primary" onclick="closeModal();estReintentar_()">🔄 Buscar en la planilla</button>
+    </div>`);
+  if (!lista.length) {
+    // si no está acá, se intenta bajar el padrón y se vuelve a buscar
+    toast('⬇️ Buscando en la planilla…');
+    try {
+      alumnosBajar(() => { lista = estCoincidencias_(texto, 8); pintar(lista, lista.length ? '' : 'La planilla tampoco lo tiene. Avisá en Dirección.'); });
+      return;
+    } catch (e) { }
+  }
+  pintar(lista, '');
+}
+
+/** El chico tocó su nombre: se completa la cédula y se pide el PIN. */
+function estElegir_(ci) {
+  closeModal();
+  const el1 = document.getElementById('estCodigo'), el2 = document.getElementById('estPin');
+  if (el1) el1.value = String(ci || '');
+  if (el2) { el2.value = ''; try { el2.focus(); } catch (e) { } }
+  toast('🔑 Ahora escribí tu PIN de 4 dígitos y tocá Ingresar');
+}
+
 function loginEstudiante(){
   try{
     const el1=document.getElementById('estCodigo'), el2=document.getElementById('estPin');
     const dig = t => String(t||'').replace(/[^0-9]/g,'');
+    // 🆕 v3.74 — FLEXIBLE: se puede escribir la CÉDULA o el APELLIDO.
+    const escrito = String((el1 && el1.value) || '').trim();
+    if(escrito && dig(escrito).length < 5 && /[a-zA-ZÁÉÍÓÚÑáéíóúñ]/.test(escrito)){
+      return estBuscarPorNombre_(escrito);     // busca por nombre y muestra los que coinciden
+    }
     // toma el primer campo que tenga algo con números (por si lo escriben en el otro)
     const candidatos=[el1&&el1.value, el2&&el2.value]
       .map(v=>String(v||'').trim())
       .filter(v=>v && dig(v).length>=5);
     const bruto = candidatos[0] || '';
-    if(!bruto) return toast('Escribí tu cédula (solo números)');
+    if(!bruto) return toast('Escribí tu cédula (o tu apellido) — solo números o letras');
 
     // 🔎 primero en el padrón de este equipo
     let al = null;
@@ -5608,6 +5671,7 @@ function renderAlumnos(){
       <button class="btn btn-ghost" onclick="alumnosSubirUI()">☁️ Subir fichas a la planilla</button>
       <button class="btn btn-ghost" onclick="alumnosBajarUI()">⬇️ Traer fichas de la planilla</button>
       <button class="btn btn-ghost" onclick="padronBuscarUI()">🧲 Buscar alumnos que faltan</button>
+      <button class="btn btn-ghost" onclick="probarCedulaUI()">🔎 Probar una cédula</button>
       <button class="btn btn-ghost" onclick="alumnosSubirSiPendiente(true)">📤 Reintentar pendientes</button>
       ${currentUser.role === 'director' ? `<button class="btn btn-ghost" style="color:#B45309" onclick="prepararAnioNuevo()">🧹 Preparar el año nuevo</button>` : ''}
     </div>
@@ -5836,9 +5900,88 @@ function guardarAlumnoForm(id){
 function eliminarAlumno(id){
   const arr=alumnosStore();
   const a=arr.find(x=>x.id===id); if(!a) return;
-  if(!confirm('¿Eliminar a '+a.nombre+'?\n\nDejará de poder entrar a la PWA.')) return;
-  guardarAlumnos(arr.filter(x=>x.id!==id));
-  refrescar('alumnos'); toast('🗑️ Alumno eliminado');
+  // 🗑️ v3.74 — borrado DEFINITIVO: sale de este equipo Y de la planilla
+  const ok1 = confirm('¿Eliminar DEFINITIVAMENTE a '+a.nombre+'?\n\n' +
+    '· Desaparece de la lista de este equipo\n' +
+    '· Se borra también de la planilla de la escuela\n' +
+    '· No va a poder entrar más a la PWA\n\n' +
+    'Si solo dejó de venir, usá «Movimientos → Dar de baja».');
+  if(!ok1) return;
+  const ok2 = confirm('Última confirmación: se borra la ficha de '+a.nombre+' de la planilla. ¿Seguir?');
+  if(!ok2) return;
+  const resto = arr.filter(x=>x.id!==id);
+  alumnosPendSet(true);
+  guardarAlumnos(resto, (okSub, det) => {
+    if(!okSub){
+      return toast('⚠️ Borrado en ESTE equipo, pero no se pudo borrar de la planilla. Tocá «☁️ Subir fichas a la planilla».');
+    }
+    // 🔎 se confirma leyendo la planilla: que ya no esté
+    alumnosConfirmar((okC, n) => {
+      const sigue = (()=>{ try{ return alumnosStore().some(x=>soloDig(x.cedula)===soloDig(a.cedula)); }catch(e){ return false; } })();
+      if(okC && !sigue) toast('🗑️ Eliminado y confirmado: quedan ' + n + ' fichas en la planilla');
+      else toast('🗑️ Eliminado del equipo. En la planilla quedan ' + (okC ? n : '?') + ' fichas.');
+    });
+  });
+  refrescar('alumnos');
+  toast('⏳ Eliminando y actualizando la planilla…');
+}
+
+/* ============================================================================
+ * 🔎 v3.74 — PROBAR UNA CÉDULA (control total)
+ *  Muestra exactamente lo que va a encontrar el celular del alumno:
+ *  este equipo · servidor de notas · módulo de comunicados.
+ * ========================================================================== */
+function probarCedulaUI() {
+  openModal(`<h3 style="margin:0 0 4px">🔎 Probar una cédula</h3>
+    <div class="card-sub" style="margin-bottom:8px">Escribí la cédula del alumno. Se revisa en este equipo y en los dos servidores,
+      como si fuera el celular del chico.</div>
+    <input id="pcCi" class="input" inputmode="numeric" placeholder="Ej.: 3244306" style="margin-bottom:8px">
+    <button class="btn btn-primary" onclick="probarCedulaVer()">Revisar</button>
+    <div id="pcOut" style="margin-top:10px"></div>`);
+}
+function probarCedulaVer() {
+  const el = document.getElementById('pcCi');
+  const ci = soloDig(el ? el.value : '');
+  const out = document.getElementById('pcOut');
+  if (!ci || ci.length < 5) { if (out) out.innerHTML = '<div style="color:#991B1B;font-size:12.5px">Escribí una cédula válida.</div>'; return; }
+  if (out) out.innerHTML = '<div style="font-size:12.5px;color:#475569">Revisando…</div>';
+  const filas = [];
+  const local = alumnosStore().find(a => soloDig(a.cedula) === ci);
+  filas.push({ donde: 'Este equipo', ok: !!local, txt: local ? (local.nombre + ' · PIN ' + (local.pin || '—') + ' · ' + (local.estado || 'activo')) : 'no está' });
+  let pendientes = 2;
+  const terminar = () => {
+    if (--pendientes > 0) return;
+    if (out) out.innerHTML = `<div style="font-size:12.5px;font-weight:800;margin-bottom:6px">Cédula ${ci}</div>
+      <table style="width:100%;font-size:12px;border-collapse:collapse">
+        <tr style="background:#F1F5F9"><th style="text-align:left;padding:6px">Dónde</th><th style="text-align:left;padding:6px">Resultado</th></tr>
+        ${filas.map(f => `<tr><td style="padding:6px;border-top:1px solid #E2E8F0"><b>${f.donde}</b></td>
+          <td style="padding:6px;border-top:1px solid #E2E8F0;color:${f.ok ? '#166534' : '#991B1B'}">${f.ok ? '✅ ' : '❌ '}${f.txt}</td></tr>`).join('')}
+      </table>
+      <div style="font-size:11.5px;color:#475569;margin-top:9px">
+        Si figura en un servidor pero <b>no</b> en este equipo: tocá <b>⬇️ Traer fichas de la planilla</b>.<br>
+        Si <b>no figura en ninguno</b>: cargá la ficha con <b>＋ Nuevo alumno</b> y después <b>☁️ Subir fichas</b>.</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:9px">
+        <button class="btn btn-ghost" onclick="closeModal();alumnosBajarUI()">⬇️ Traer fichas de la planilla</button>
+      </div>`;
+  };
+  // servidor por servidor, preguntando lo mismo que pregunta el celular
+  const urls = alumnoApiUrls_();
+  if (!urls.length) { filas.push({ donde: 'Servidores', ok: false, txt: 'sin enlace configurado' }); pendientes = 1; return terminar(); }
+  urls.forEach((url, i) => {
+    try {
+      jsonpCall(url, { alumget: '1' }, (res) => {
+        const filasSrv = (res && res.ok && res.filas) ? res.filas : null;
+        const esta = filasSrv ? filasSrv.find(f => soloDig(f[1]) === ci) : null;
+        filas.push({
+          donde: i === 0 ? 'Servidor de notas' : 'Módulo de comunicados',
+          ok: !!esta,
+          txt: esta ? (esta[2] + ' · PIN ' + (esta[7] || '—') + ' · ' + (esta[8] || 'activo'))
+            : (filasSrv ? 'no está (' + filasSrv.length + ' fichas)' : 'no respondió')
+        });
+        terminar();
+      }, { timeout: 45000 });
+    } catch (e) { filas.push({ donde: i === 0 ? 'Servidor de notas' : 'Módulo de comunicados', ok: false, txt: 'error' }); terminar(); }
+  });
 }
 
 // ============================================================================
@@ -9982,5 +10125,5 @@ let deferredPrompt=null; window.addEventListener('beforeinstallprompt',e=>{e.pre
 function promptInstall(){ if(deferredPrompt) deferredPrompt.prompt(); else toast('📲 Menú ⋮ → Agregar a pantalla principal'); }
 </script>
 <div id="printArea"></div>
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a577b9697aa7a655',t:'MTc5NDE3MzkwMg=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a577b9697aa7a655',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a577f2adf815f204',t:'MTc5NDE3NjI0Nw=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a577f2adf815f204',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
