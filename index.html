@@ -251,6 +251,10 @@ body{padding-bottom:env(safe-area-inset-bottom)}
       <input id="estPin" class="input" inputmode="numeric" maxlength="4" placeholder="PIN de 4 dígitos" style="margin:0 0 10px">
       <button class="btn btn-primary" style="width:100%;justify-content:center;padding:13px" onclick="loginEstudiante()">Ingresar como estudiante →</button>
       <div style="font-size:11px;color:#64748B;margin-top:8px">El PIN te lo entrega la escuela con la ficha. Si no lo tenés, pedilo en Dirección.</div>
+      <div style="text-align:center;margin-top:6px">
+        <button class="btn btn-ghost" style="font-size:11px;padding:5px 10px"
+          onclick="estDiagnostico_(document.getElementById('estCodigo').value)">🩺 ¿No podés entrar? Ver qué pasa</button>
+      </div>
     </div>
 
     <div id="form-padre" class="pt-form" style="display:none">
@@ -280,7 +284,7 @@ body{padding-bottom:env(safe-area-inset-bottom)}
 
     <div class="pt-foot">
       <b>Portal Educativo 1.281</b> · uso oficial de la escuela<br>
-      Funciona sin internet en el celular · <span class="pt-ver" id="selloVersion">PWA v3.75</span>
+      Funciona sin internet en el celular · <span class="pt-ver" id="selloVersion">PWA v3.76</span>
     </div>
   </div>
 </div>
@@ -440,7 +444,7 @@ function loadStore(k, fb){ try{ return JSON.parse(localStorage.getItem(k)) ?? fb
 // FORZAR ACTUALIZACIÓN A v2.1 - Tareas interactivas
 const APP_VERSION='2.2-corregida';
 /** 🏷️ sello que se muestra en el menú (dirección + versión de la PWA). Se cambia solo acá. */
-const APP_VERSION_UI='v3.75';
+const APP_VERSION_UI='v3.76';
 if(localStorage.getItem('app_version') !== APP_VERSION){
   localStorage.setItem('actividades', JSON.stringify(actividadesSeed));
   localStorage.setItem('entregasInteractivas', JSON.stringify([]));
@@ -632,10 +636,15 @@ function estNoEncontrado_(bruto) {
     </div>
     <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:10px;padding:9px 11px;margin-top:9px;font-size:11.5px;color:#1E3A8A">
       📊 Este celular tiene <b>${hay}</b> alumnos descargados${hay < 40 ? ' — <b>parece que nunca bajó el padrón completo</b>: la planilla debería traer a todos los de la escuela.' : '.'}
-      <br>🔎 Se preguntó al servidor por esta cédula: <b>tampoco la tiene</b>.
+      <br>🔎 ${(()=>{ const d=window.__ultimoDetalle||[]; if(!d.length) return 'No se pudo preguntar al servidor.';
+        const sin = d.filter(x=>!x.contesto).length; const con = d.filter(x=>x.contesto).length;
+        if(sin && !con) return 'Los servidores <b>no contestaron</b> a este celular (problema de conexión, no de la ficha).';
+        if(con && !sin) return 'Los servidores contestaron pero <b>no traen esta cédula</b>.';
+        return 'Un servidor no contestó y el otro no trae la cédula.'; })()}
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
       <button class="btn btn-primary" onclick="closeModal();estReintentar_()">🔄 Buscar de nuevo en la planilla</button>
+      <button class="btn btn-ghost" onclick="estDiagnostico_('${soloDig(bruto)}')">🩺 Ver qué pasa en este celular</button>
     </div>`);
 }
 
@@ -646,20 +655,33 @@ function estNoEncontrado_(bruto) {
  *  equipo, se le pregunta al servidor por esa cédula y se entra igual.
  *  cb({alumno, deDonde})  o  cb(null)
  * ========================================================================== */
-function estBuscarEnServidor_(ci, cb) {
+function estBuscarEnServidor_(ci, cb, detalle) {
   cb = cb || function () { };
+  detalle = detalle || [];
   const buscar = soloDig(ci);
   if (!buscar) return cb(null);
   const urls = (typeof alumnoApiUrls_ === 'function' ? alumnoApiUrls_() : []);
+  if (!urls.length) {
+    detalle.push({ donde: 'servidores', estado: 'sin enlace configurado', filas: 0, encontrado: false });
+    return cb(null);
+  }
   let i = 0;
   const siguiente = () => {
     if (i >= urls.length) return cb(null);
+    const idx = i;
     const url = urls[i++];
-    const esNotas = (i === 1);
+    const nombre = (idx === 0 ? 'Servidor de notas' : 'Módulo de comunicados');
     jsonpCall(url, { alumget: '1' }, (res) => {
-      const filas = (res && res.ok && res.filas) ? res.filas : null;
-      if (!filas) return siguiente();
-      const f = filas.find(x => soloDig(x[1]) === buscar);
+      // ⚠️ v3.76: se distingue «no contestó» de «contestó y no la tiene»
+      const tieneLista = !!(res && res.ok && res.filas);
+      if (!tieneLista) {
+        detalle.push({ donde: nombre, estado: (res && res.error) ? String(res.error).slice(0, 40) : 'no respondió',
+          filas: 0, encontrado: false, contesto: false });
+        return siguiente();
+      }
+      const f = res.filas.find(x => soloDig(x[1]) === buscar);
+      detalle.push({ donde: nombre, estado: f ? 'la tiene' : 'no la tiene', filas: res.filas.length,
+        encontrado: !!f, contesto: true });
       if (!f) return siguiente();
       cb({
         alumno: {
@@ -668,11 +690,41 @@ function estBuscarEnServidor_(ci, cb) {
           celPadre: String(f[6] || ''), pin: soloDig(f[7]), estado: String(f[8] || 'activo'),
           curso: String(f[3] || '').replace(/\s*Grado/i, '') + ' ' + String(f[5] || '') + ' - ' + String(f[4] || '')
         },
-        deDonde: esNotas ? 'planilla de notas' : 'módulo de comunicados'
+        deDonde: nombre
       });
     }, { timeout: 30000 });
   };
   siguiente();
+}
+
+/** 🩺 v3.76 — Diagnóstico DESDE ESTE CELULAR. Dice la verdad: contestó / no contestó. */
+function estDiagnostico_(ci) {
+  const ci2 = soloDig(ci || '');
+  const detalle = [];
+  const pintar = (encontrado) => {
+    openModal(`<h3 style="margin:0 0 4px">🩺 Diagnóstico de este celular</h3>
+      <div class="card-sub" style="margin-bottom:8px">Esto es lo que ve la app desde <b>este</b> teléfono.
+        Sirve para saber si el problema es la escuela o el aparato.</div>
+      <div style="font-size:12px;margin-bottom:6px">📶 Internet: <b>${navigator.onLine === false ? '❌ SIN CONEXIÓN' : '✅ conectado'}</b></div>
+      <div style="font-size:12px;margin-bottom:6px">📱 Alumnos guardados en este celular: <b>${(typeof alumnosStore === 'function' ? alumnosStore().length : 0)}</b></div>
+      <table style="width:100%;font-size:11.5px;border-collapse:collapse;margin-top:6px">
+        <tr style="background:#F1F5F9"><th style="text-align:left;padding:6px">Servidor</th><th style="text-align:left;padding:6px">Respuesta</th></tr>
+        ${detalle.map(d => `<tr><td style="padding:6px;border-top:1px solid #E2E8F0"><b>${d.donde}</b></td>
+          <td style="padding:6px;border-top:1px solid #E2E8F0;color:${d.contesto ? (d.encontrado ? '#166534' : '#92400E') : '#991B1B'}">
+            ${d.contesto ? (d.encontrado ? '✅ la tiene' : '⚠️ contestó, pero NO la tiene') : '❌ ' + d.estado}
+            ${d.contesto ? `<span style="color:#64748B"> (${d.filas} fichas)</span>` : ''}</td></tr>`).join('')}
+      </table>
+      ${encontrado ? `<div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:9px;padding:9px 11px;margin-top:9px;font-size:12px;color:#166534">
+        ✅ Tu ficha está en la escuela. Cerrá esto y tocá <b>Ingresar</b> otra vez: ahora debería dejarte entrar.</div>`
+        : `<div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:9px;padding:9px 11px;margin-top:9px;font-size:12px;color:#92400E">
+        ${detalle.some(d => !d.contesto)
+          ? '❌ Este celular <b>no logra conectarse</b> con la planilla. Probá: datos móviles o wifi, abrir la app en <b>Chrome</b> (no Brave), y tocar <b>🔄 Actualizar</b> arriba.'
+          : '⚠️ La planilla contestó pero no trae esta cédula. En Dirección: 👥 Alumnos → <b>☁️ Subir fichas a la planilla</b>.'}</div>`}
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+        <button class="btn btn-primary" onclick="closeModal();loginEstudiante()">🔄 Reintentar entrar</button>
+      </div>`);
+  };
+  estBuscarEnServidor_(ci2, (hit) => pintar(!!hit), detalle);
 }
 
 /** Guarda en el equipo una ficha que vino del servidor (para la próxima vez). */
@@ -821,8 +873,10 @@ function loginEstudiante(){
       alumnosBajar((okk)=>{
         window.__bajandoPadron = false;
         if(okk) return loginEstudiante();          // reintenta una vez, ya sin volver a bajar
-        toast('⚠️ No se pudo traer el padrón. Revisá la conexión.');
-        estNoEncontrado_(bruto);                   // y aun así, explica qué hacer
+        // v3.76: si no se pudo bajar la lista, se pregunta por ESTA cédula y se
+        // muestra el detalle REAL (contesto / no contestó). Así no se culpa a la ficha.
+        window.__padronTs = Date.now();
+        loginEstudiante();
       });
       return;
     }
@@ -832,8 +886,9 @@ function loginEstudiante(){
       if(navigator.onLine === false) return estNoEncontrado_(bruto);
       toast('🔎 Buscando tu cédula en la planilla…');
       const escritoPin = dig(el2 && el2.value);
+      const detalleSrv = [];
       estBuscarEnServidor_(bruto, (hit) => {
-        if(!hit || !hit.alumno) return estNoEncontrado_(bruto);
+        if(!hit || !hit.alumno){ window.__ultimoDetalle = detalleSrv; return estNoEncontrado_(bruto); }
         const a2 = hit.alumno;
         if(String(a2.estado || 'activo').toLowerCase() !== 'activo'){
           return openModal(`<h3 style="margin:0 0 6px">🚪 Ficha no activa</h3>
@@ -851,7 +906,7 @@ function loginEstudiante(){
         estGuardarFicha_(a2);          // queda en el equipo para la próxima
         estEntrar_(a2, bruto);         // y entra
         toast('✅ Entraste · ficha traída de la ' + hit.deDonde);
-      });
+      }, detalleSrv);
       return;
     }
 
@@ -10213,5 +10268,5 @@ let deferredPrompt=null; window.addEventListener('beforeinstallprompt',e=>{e.pre
 function promptInstall(){ if(deferredPrompt) deferredPrompt.prompt(); else toast('📲 Menú ⋮ → Agregar a pantalla principal'); }
 </script>
 <div id="printArea"></div>
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a5780f1d68eb36f4',t:'MTc5NDE3NzQxMg=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a5780f1d68eb36f4',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a5782f72bad9f3bf',t:'MTc5NDE3ODczNw=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a5782f72bad9f3bf',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
