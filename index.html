@@ -279,7 +279,7 @@ body{padding-bottom:env(safe-area-inset-bottom)}
 
     <div class="pt-foot">
       <b>Portal Educativo 1.281</b> · uso oficial de la escuela<br>
-      Funciona sin internet en el celular · <span class="pt-ver" id="selloVersion">PWA v3.68</span>
+      Funciona sin internet en el celular · <span class="pt-ver" id="selloVersion">PWA v3.69</span>
     </div>
   </div>
 </div>
@@ -439,7 +439,7 @@ function loadStore(k, fb){ try{ return JSON.parse(localStorage.getItem(k)) ?? fb
 // FORZAR ACTUALIZACIÓN A v2.1 - Tareas interactivas
 const APP_VERSION='2.2-corregida';
 /** 🏷️ sello que se muestra en el menú (dirección + versión de la PWA). Se cambia solo acá. */
-const APP_VERSION_UI='v3.68';
+const APP_VERSION_UI='v3.69';
 if(localStorage.getItem('app_version') !== APP_VERSION){
   localStorage.setItem('actividades', JSON.stringify(actividadesSeed));
   localStorage.setItem('entregasInteractivas', JSON.stringify([]));
@@ -677,6 +677,8 @@ function loginEstudiante(){
       if (!padronRealListo_() && navigator.onLine !== false) {
         setTimeout(() => { try { alumnosBajar(() => { }); } catch (e) { } }, 1200);
       }
+      // 📢 v3.69: traer los avisos de la escuela para el curso del hijo
+      setTimeout(() => { try { famBajar_(() => { }); } catch (e) { } }, 1500);
     } catch (e) { }
     startApp();
   }catch(e){ alert('Error estudiante: '+e.message); console.error(e); }
@@ -793,6 +795,8 @@ function loginPadre(){
       if (!padronRealListo_() && navigator.onLine !== false) {
         setTimeout(() => { try { alumnosBajar(() => { }); } catch (e) { } }, 1200);
       }
+      // 📢 v3.69: el padre ve en la app los avisos del curso de su hijo
+      setTimeout(() => { try { famBajar_(() => { }); } catch (e) { } }, 1500);
     } catch (e) { }
     startApp();
   }catch(e){ alert('Error padre: ' + e.message); console.error(e); }
@@ -2197,9 +2201,9 @@ function buildSidebar(){
   } else if(isDoc){
     items=[{id:'dashboard',ic:'📊',label:'Panel',sub:'Resumen del día'},{id:'asistencia',ic:'✅',label:'Asistencia',sub:'Pasar lista'},{id:'familias',ic:'📢',label:'Aviso a familias',sub:'Por WhatsApp'},{id:'actividades',ic:'✨',label:'Tareas',sub:'Crear y seguir'},{id:'calificaciones',ic:'📊',label:'Calificaciones',sub:'Cargar notas'},{id:'uniforme',ic:'👕',label:'Uniforme',sub:'Entrega kit'},{id:'informes',ic:'📄',label:'Informes',sub:'Trimestrales'},{id:'mensajes',ic:'✉️',label:'Mensajes',sub:'De padres'},{id:'cuadernillos',ic:'📚',label:'Cuadernillos',sub:'MEC por grado'},{id:'recursos',ic:'📂',label:'Recursos',sub:'PDF y videos'},{id:'plataformas',ic:'🔗',label:'Plataformas',sub:'Observación y más'},{id:'notifs',ic:'🔔',label:'Avisos',sub:'A padres'},{id:'reportes',ic:'📈',label:'Reportes',sub:'Excel MEC'}];
   } else if(isEst){
-    items=[{id:'dashboard',ic:'🏠',label:'Inicio',sub:'Mi progreso'},{id:'actividades',ic:'✨',label:'Mis tareas',sub:'¡Hazlas aquí!'},{id:'calificaciones',ic:'📊',label:'Mis notas',sub:'Boletín'},{id:'asistencia',ic:'✅',label:'Mi asistencia',sub:'Mes'},{id:'uniforme',ic:'👕',label:'Uniforme',sub:'Mi kit'},{id:'cuadernillos',ic:'📚',label:'Cuadernillos',sub:currentUser.grado},{id:'recursos',ic:'📂',label:'Recursos',sub:'Material'},{id:'notifs',ic:'🔔',label:'Avisos',sub:'Profes'}];
+    items=[{id:'dashboard',ic:'🏠',label:'Inicio',sub:'Mi progreso'},{id:'avisosfam',ic:'📢',label:'Avisos',sub:'De la maestra'},{id:'actividades',ic:'✨',label:'Mis tareas',sub:'¡Hazlas aquí!'},{id:'calificaciones',ic:'📊',label:'Mis notas',sub:'Boletín'},{id:'asistencia',ic:'✅',label:'Mi asistencia',sub:'Mes'},{id:'uniforme',ic:'👕',label:'Uniforme',sub:'Mi kit'},{id:'cuadernillos',ic:'📚',label:'Cuadernillos',sub:currentUser.grado},{id:'recursos',ic:'📂',label:'Recursos',sub:'Material'},{id:'notifs',ic:'🔔',label:'Avisos',sub:'Profes'}];
   } else {
-    items=[{id:'dashboard',ic:'🏠',label:'Inicio',sub:'Mi hijo/a'},{id:'actividades',ic:'✨',label:'Tareas',sub:'Solo lectura'},{id:'asistencia',ic:'✅',label:'Asistencia',sub:'Solo lectura'},{id:'calificaciones',ic:'📊',label:'Calificaciones',sub:'Solo lectura'},{id:'mensajes',ic:'✉️',label:'Mensajes',sub:'A la maestra'},{id:'uniforme',ic:'👕',label:'Uniforme',sub:'Solo lectura'},{id:'informes',ic:'📄',label:'Informes',sub:'Solo lectura'},{id:'cuadernillos',ic:'📚',label:'Cuadernillos',sub:'Solo lectura'},{id:'recursos',ic:'📂',label:'Recursos',sub:'Material'},{id:'notifs',ic:'🔔',label:'Avisos',sub:'Solo lectura'}];
+    items=[{id:'dashboard',ic:'🏠',label:'Inicio',sub:'Mi hijo/a'},{id:'avisosfam',ic:'📢',label:'Avisos de la escuela',sub:'De la maestra'},{id:'actividades',ic:'✨',label:'Tareas',sub:'Solo lectura'},{id:'asistencia',ic:'✅',label:'Asistencia',sub:'Solo lectura'},{id:'calificaciones',ic:'📊',label:'Calificaciones',sub:'Solo lectura'},{id:'mensajes',ic:'✉️',label:'Mensajes',sub:'A la maestra'},{id:'uniforme',ic:'👕',label:'Uniforme',sub:'Solo lectura'},{id:'informes',ic:'📄',label:'Informes',sub:'Solo lectura'},{id:'cuadernillos',ic:'📚',label:'Cuadernillos',sub:'Solo lectura'},{id:'recursos',ic:'📂',label:'Recursos',sub:'Material'},{id:'notifs',ic:'🔔',label:'Avisos',sub:'Solo lectura'}];
   }
   // Solo el Director puede cargar/editar alumnos
   if(currentUser.role==='director'){
@@ -2231,7 +2235,7 @@ function buildSidebar(){
   const NAV_CORTO={dashboard:'Panel',asistencia:'Asistencia',actividades:'Tareas',calificaciones:'Notas',
     informes:'Informes',mensajes:'Mensajes',avisos:'Avisos',cuadernillos:'Cuadern.',recursos:'Recursos',
     comunicados:'Comunic.',notifs:'Avisos',reportes:'Reportes',alumnos:'Alumnos',docentes:'Docentes',
-    movimientos:'Movim.',uniforme:'Uniforme',justificativos:'Justif.',familias:'Familias'};
+    movimientos:'Movim.',uniforme:'Uniforme',justificativos:'Justif.',familias:'Familias',avisosfam:'Avisos'};
   const corto = (it)=> NAV_CORTO[it.id] || String(it.label||'').split(' ')[0].slice(0,9);
   const hayMas = items.length > 5;
   const visibles = hayMas ? items.slice(0,4) : items.slice(0,5);
@@ -2388,6 +2392,10 @@ function navigate(v){
   }
   if(v==='comunicados'){ c.innerHTML=renderComunicados(); try{ comBajar(); }catch(e){} }
   if(v==='avisos'){ c.innerHTML=renderAvisos(); try{ comBajar(); }catch(e){} }
+  if(v==='avisosfam'){
+    c.innerHTML=renderAvisosFamilia();
+    try { famBajar_((ok, det) => { if(ok && det && det.nuevos) msgRefrescarSi_('avisosfam', renderAvisosFamilia); }); } catch(e){}
+  }
   if(v==='familias'){
     c.innerHTML=renderFamilias();
     // ☁️ v3.65: el historial completo llega de la planilla
@@ -4822,6 +4830,120 @@ function msgRefrescarSi_(vista, pintar) {
   try { if (currentView === vista) document.getElementById('appContent').innerHTML = pintar(); } catch (e) { }
 }
 
+/* ============== 📢 v3.69 · EL AVISO DEL DOCENTE DENTRO DE LA APP ==============
+ *  El padre y el alumno ven en su propia app los avisos que manda el docente,
+ *  bajados de la planilla (hoja AVISOS_FAMILIAS). Se muestran solo los que
+ *  corresponden al curso del hijo, y de los avisos de UN alumno, solo el suyo.
+ * ========================================================================== */
+const FAMV_KEY = 'avisos_fam_vistos';
+
+/** Curso del hijo/alumno como objeto {grado, turno, seccion, label}. */
+function famMiCurso_() {
+  const u = currentUser || {};
+  let grado = String(u.hijoGrado || u.grado || '').trim();
+  let turno = String(u.hijoTurno || u.turno || '').trim();
+  let seccion = String(u.hijoSeccion || u.seccion || '').trim().toUpperCase();
+  // si faltan datos, se buscan en el padrón por la cédula
+  const ci = String(u.hijoId || u.hijoCi || u.ci || u.codigo || '').replace(/[^0-9]/g, '');
+  if ((!grado || !seccion) && ci) {
+    const a = (typeof alumnosStore === 'function' ? alumnosStore() : [])
+      .find(x => String(x.cedula || x.codigo || '').replace(/[^0-9]/g, '') === ci);
+    if (a) { grado = grado || String(a.grado || ''); turno = turno || String(a.turno || ''); seccion = seccion || String(a.seccion || 'A'); }
+  }
+  if (grado && !turno) { try { turno = String(etiquetaCurso(grado, seccion) || '').indexOf('Tarde') >= 0 ? 'Tarde (TT)' : turno; } catch (e) { } }
+  const label = grado ? (grado + (turno ? ' · ' + turno.replace(' (TM)', ' Mañana').replace(' (TT)', ' Tarde') : '') + (seccion && seccion !== 'A' ? ' · Sec. ' + seccion : '')) : '';
+  return { grado: grado, turno: turno, seccion: seccion || 'A', label: label };
+}
+
+/** ¿Ese aviso es para el curso de este alumno? (y si fue a un alumno, ¿es él?) */
+function famAvisoMeToca_(a) {
+  const mio = famMiCurso_();
+  const destino = String(a.destino || (a.alumno ? 'ALUMNO' : 'CURSO')).toUpperCase();
+  const nombreMio = String((currentUser && (currentUser.hijo || currentUser.name)) || '').trim().toUpperCase();
+  if (destino === 'ALUMNO') {
+    const al = String(a.alumno || '').trim().toUpperCase();
+    return !!al && (al === nombreMio || (al && nombreMio && (nombreMio.indexOf(al) === 0 || al.indexOf(nombreMio) === 0)));
+  }
+  const curso = String(a.curso || '').trim();
+  if (!curso) return true;                       // aviso general de la escuela
+  if (!mio.grado) return false;
+  if (curso.indexOf(mio.grado) < 0) return false;
+  // turno
+  const esTardeAviso = /Tarde/i.test(curso);
+  const esTardeMio = /Tarde|TT/.test(String(mio.turno || ''));
+  if (/Mañana|Tarde/.test(curso) && esTardeAviso !== esTardeMio) return false;
+  // sección: si el aviso dice «Sec. B», es solo para B
+  const mSec = curso.match(/Sec\.\s*([AB])/i);
+  const secAviso = mSec ? mSec[1].toUpperCase() : 'A';
+  return secAviso === String(mio.seccion || 'A').toUpperCase();
+}
+
+/** Avisos que le corresponden, los más nuevos primero. */
+function famMisAvisos_() {
+  return famStore().filter(famAvisoMeToca_).slice().reverse();
+}
+function famVistos_() { const v = loadStore(FAMV_KEY, []); return Array.isArray(v) ? v : []; }
+function famMarcarVistos_() {
+  const ids = famMisAvisos_().map(a => String(a.id));
+  saveStore(FAMV_KEY, [...new Set(famVistos_().concat(ids))]);
+}
+function famNoLeidos_() {
+  const v = new Set(famVistos_());
+  return famMisAvisos_().filter(a => !v.has(String(a.id))).length;
+}
+
+/** Pantalla del padre/alumno: 📢 Avisos de la escuela. */
+function renderAvisosFamilia() {
+  const lista = famMisAvisos_();
+  const vistos = new Set(famVistos_());
+  const cuerpo = lista.length ? lista.map(a => {
+    const esUno = String(a.destino || (a.alumno ? 'ALUMNO' : 'CURSO')).toUpperCase() === 'ALUMNO';
+    const nuevo = !vistos.has(String(a.id));
+    return `<div class="card" style="margin-bottom:10px;border-left:4px solid ${esUno ? '#7C3AED' : '#1D4ED8'}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap">
+        <div style="flex:1;min-width:170px">
+          <div style="font-size:14px;font-weight:800;color:var(--navy)">${esUno ? '👤' : '📢'} ${String(a.titulo || '(sin título)').replace(/</g, '&lt;')}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">
+            ${String(a.fecha || '').replace(/</g, '&lt;')}${a.docente ? ' · Prof. ' + String(a.docente).replace(/</g, '&lt;') : ''}
+            ${esUno ? ' · ' + String(a.alumno || '').replace(/</g, '&lt;') : ' · para todo el curso'}</div>
+        </div>
+        ${nuevo ? '<span class="pill" style="background:#FEF3C7;color:#92400E;font-size:10px">NUEVO</span>' : ''}
+      </div>
+      <div style="font-size:12.5px;color:#334155;white-space:pre-wrap;margin-top:8px">${String(a.mensaje || '').replace(/</g, '&lt;')}</div>
+    </div>`;
+  }).join('') : `<div class="card"><div class="card-title">📢 Avisos de la escuela</div>
+      <div class="card-sub">Todavía no hay avisos para ${famMiCurso_().label || 'tu curso'}.</div>
+      <div style="font-size:11.5px;color:var(--muted);margin-top:8px">Cuando la maestra o Dirección manden un aviso, aparece acá.
+        También te llega por <b>WhatsApp</b> al celular cargado en la escuela.</div></div>`;
+
+  // al abrir, quedan como leídos
+  setTimeout(() => {
+    try { famMarcarVistos_(); const c = document.getElementById('appContent'); if (c && currentView === 'avisosfam') c.innerHTML = renderAvisosFamilia(); } catch (e) { }
+  }, 50);
+
+  return `<div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+        <div><div class="card-title" style="margin:0">📢 Avisos de la escuela</div>
+          <div class="card-sub">Solo los de <b>${famMiCurso_().label || 'tu curso'}</b></div></div>
+        <button class="btn btn-ghost" style="padding:6px 10px;font-size:11.5px" onclick="avisosFamBajar()">🔄 Buscar nuevos</button>
+      </div>
+    </div>
+    <div style="margin-top:12px">${cuerpo}</div>
+    <div style="font-size:11px;color:var(--muted);text-align:center;margin:14px 0 4px">
+      🔒 Solo lectura. Las respuestas se mandan por <b>✉️ Mensajes</b> a la maestra.</div>`;
+}
+
+/** Baja los avisos de la planilla y repinta. */
+function avisosFamBajar() {
+  try {
+    famBajar_((ok, det) => {
+      if (!ok) return toast('⚠️ No se pudo buscar nuevos avisos');
+      toast(det && det.nuevos ? ('📢 ' + det.nuevos + ' aviso(s) nuevo(s)') : '✅ No hay avisos nuevos');
+      try { if (currentView === 'avisosfam') document.getElementById('appContent').innerHTML = renderAvisosFamilia(); } catch (e) { }
+    });
+  } catch (e) { toast('⚠️ No se pudo buscar avisos'); }
+}
+
 const FAM_KEY = 'avisos_familias';
 function famStore() { const a = loadStore(FAM_KEY, []); return Array.isArray(a) ? a : []; }
 function famGuardar(a) { saveStore(FAM_KEY, a || []); }
@@ -6323,9 +6445,9 @@ const PERMISOS = {
     'notifs', 'reportes', 'diagnostico', 'comunicados', 'plataformas'],
   docente: ['dashboard', 'asistencia', 'actividades', 'calificaciones',
     'informes', 'mensajes', 'cuadernillos', 'recursos', 'avisos', 'plataformas', 'familias'],
-  estudiante: ['dashboard', 'actividades', 'calificaciones', 'asistencia',
+  estudiante: ['dashboard', 'avisosfam', 'actividades', 'calificaciones', 'asistencia',
     'uniforme', 'cuadernillos', 'recursos', 'notifs'],
-  padre: ['dashboard', 'actividades', 'asistencia', 'calificaciones',
+  padre: ['dashboard', 'avisosfam', 'actividades', 'asistencia', 'calificaciones',
     'mensajes', 'uniforme', 'informes', 'cuadernillos', 'recursos', 'notifs']
 };
 
@@ -9685,5 +9807,5 @@ let deferredPrompt=null; window.addEventListener('beforeinstallprompt',e=>{e.pre
 function promptInstall(){ if(deferredPrompt) deferredPrompt.prompt(); else toast('📲 Menú ⋮ → Agregar a pantalla principal'); }
 </script>
 <div id="printArea"></div>
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a577117dee4fe638',t:'MTc5NDE2NzAyNA=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a577117dee4fe638',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a5774ba339c6c279',t:'MTc5NDE2OTQwNQ=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a5774ba339c6c279',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
