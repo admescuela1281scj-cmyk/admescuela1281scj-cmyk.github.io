@@ -284,7 +284,7 @@ body{padding-bottom:env(safe-area-inset-bottom)}
 
     <div class="pt-foot">
       <b>Portal Educativo 1.281</b> · uso oficial de la escuela<br>
-      Funciona sin internet en el celular · <span class="pt-ver" id="selloVersion">PWA v3.77</span>
+      Funciona sin internet en el celular · <span class="pt-ver" id="selloVersion">PWA v3.78</span>
     </div>
   </div>
 </div>
@@ -444,7 +444,7 @@ function loadStore(k, fb){ try{ return JSON.parse(localStorage.getItem(k)) ?? fb
 // FORZAR ACTUALIZACIÓN A v2.1 - Tareas interactivas
 const APP_VERSION='2.2-corregida';
 /** 🏷️ sello que se muestra en el menú (dirección + versión de la PWA). Se cambia solo acá. */
-const APP_VERSION_UI='v3.77';
+const APP_VERSION_UI='v3.78';
 if(localStorage.getItem('app_version') !== APP_VERSION){
   localStorage.setItem('actividades', JSON.stringify(actividadesSeed));
   localStorage.setItem('entregasInteractivas', JSON.stringify([]));
@@ -2459,6 +2459,7 @@ function buildSidebar(){
     items=[
       {id:'dashboard', ic:'📊', label:'Panel', sub:'Mis materias'},
       {id:'asistencia', ic:'✅', label:'Asistencia', sub:'Mi curso'},
+      {id:'uniforme', ic:'👕', label:'Uniforme', sub:'Completo / incompleto'},
       {id:'familias', ic:'📢', label:'Aviso a familias', sub:'Por WhatsApp'},
       {id:'actividades', ic:'✨', label:'Tareas', sub:'Mis materias'},
       {id:'avisos', ic:'📢', label:'Avisos de Dirección', sub:'Con acuse de lectura'},
@@ -2470,7 +2471,7 @@ function buildSidebar(){
       {id:'plataformas', ic:'🔗', label:'Plataformas', sub:'Observación y más'}
     ];
   } else if(isDoc){
-    items=[{id:'dashboard',ic:'📊',label:'Panel',sub:'Resumen del día'},{id:'asistencia',ic:'✅',label:'Asistencia',sub:'Pasar lista'},{id:'familias',ic:'📢',label:'Aviso a familias',sub:'Por WhatsApp'},{id:'actividades',ic:'✨',label:'Tareas',sub:'Crear y seguir'},{id:'calificaciones',ic:'📊',label:'Calificaciones',sub:'Cargar notas'},{id:'uniforme',ic:'👕',label:'Uniforme',sub:'Entrega kit'},{id:'informes',ic:'📄',label:'Informes',sub:'Trimestrales'},{id:'mensajes',ic:'✉️',label:'Mensajes',sub:'De padres'},{id:'cuadernillos',ic:'📚',label:'Cuadernillos',sub:'MEC por grado'},{id:'recursos',ic:'📂',label:'Recursos',sub:'PDF y videos'},{id:'plataformas',ic:'🔗',label:'Plataformas',sub:'Observación y más'},{id:'notifs',ic:'🔔',label:'Avisos',sub:'A padres'},{id:'reportes',ic:'📈',label:'Reportes',sub:'Excel MEC'}];
+    items=[{id:'dashboard',ic:'📊',label:'Panel',sub:'Resumen del día'},{id:'asistencia',ic:'✅',label:'Asistencia',sub:'Pasar lista'},{id:'familias',ic:'📢',label:'Aviso a familias',sub:'Por WhatsApp'},{id:'actividades',ic:'✨',label:'Tareas',sub:'Crear y seguir'},{id:'calificaciones',ic:'📊',label:'Calificaciones',sub:'Cargar notas'},{id:'uniforme',ic:'👕',label:'Uniforme',sub:'Completo / incompleto'},{id:'informes',ic:'📄',label:'Informes',sub:'Trimestrales'},{id:'mensajes',ic:'✉️',label:'Mensajes',sub:'De padres'},{id:'cuadernillos',ic:'📚',label:'Cuadernillos',sub:'MEC por grado'},{id:'recursos',ic:'📂',label:'Recursos',sub:'PDF y videos'},{id:'plataformas',ic:'🔗',label:'Plataformas',sub:'Observación y más'},{id:'notifs',ic:'🔔',label:'Avisos',sub:'A padres'},{id:'reportes',ic:'📈',label:'Reportes',sub:'Excel MEC'}];
   } else if(isEst){
     items=[{id:'dashboard',ic:'🏠',label:'Inicio',sub:'Mi progreso'},{id:'avisosfam',ic:'📢',label:'Avisos',sub:'De la maestra'},{id:'actividades',ic:'✨',label:'Mis tareas',sub:'¡Hazlas aquí!'},{id:'calificaciones',ic:'📊',label:'Mis notas',sub:'Boletín'},{id:'asistencia',ic:'✅',label:'Mi asistencia',sub:'Mes'},{id:'uniforme',ic:'👕',label:'Uniforme',sub:'Mi kit'},{id:'cuadernillos',ic:'📚',label:'Cuadernillos',sub:currentUser.grado},{id:'recursos',ic:'📂',label:'Recursos',sub:'Material'},{id:'notifs',ic:'🔔',label:'Avisos',sub:'Profes'}];
   } else {
@@ -2760,7 +2761,7 @@ function renderDashboard(){
       {v:'actividades',ic:'✨',t:'Tareas',s:pend? pend+' pendientes de '+nombreHijo : 'Al día ✅',c:'#ECFDF5',b:'#059669'},
       {v:'asistencia',ic:'✅',t:'Asistencia',s:'Presente 18/19',c:'#EFF6FF',b:'#1D4ED8'},
       {v:'calificaciones',ic:'📊',t:'Calificaciones',s:'Oficial de la planilla',c:'#FEF3C7',b:'#B45309'},
-      {v:'uniforme',ic:'👕',t:'Uniforme',s:'Kit entregado',c:'#F5F3FF',b:'#6D28D9'},
+      {v:'uniforme',ic:'👕',t:'Uniforme',s:(()=>{const m=uniDe(String(currentUser.hijoId||currentUser.ci||''));const e=m?uniEstado(m.estado):null;return e?e.ic+' '+e.t:'sin registrar';})(),c:'#F5F3FF',b:'#6D28D9'},
       {v:'informes',ic:'📄',t:'Informes',s:'1er trimestre',c:'#F0FDFA',b:'#0F766E'},
       {v:'mensajes',ic:'✉️',t:'Mensajes',s:sinLeer? sinLeer+' nuevos de la profe' : 'Escribir a la maestra',c:'#FDF2F8',b:'#BE185D'}
     ];
@@ -2779,7 +2780,7 @@ function renderDashboard(){
       <div class="kpi green"><span>Calificación oficial</span><b>—</b><small>ver boletín de la planilla</small></div>
       <div class="kpi blue"><span>Tareas</span><b>${entregas.length}/${acts.length}</b><small>${pend? pend+' pendientes' : 'todo al día'}</small></div>
       <div class="kpi amber"><span>Asistencia</span><b>96%</b><small>1 tardanza este mes</small></div>
-      <div class="kpi navy"><span>Uniforme</span><b>✅</b><small>kit completo entregado</small></div>
+      <div class="kpi navy"><span>Uniforme</span><b>${(()=>{const m=uniDe(String(currentUser.hijoId||currentUser.ci||''));const e=m?uniEstado(m.estado):null;return e?e.ic:'—';})()}</b><small>${(()=>{const m=uniDe(String(currentUser.hijoId||currentUser.ci||''));const e=m?uniEstado(m.estado):null;return e?e.t:'sin registrar';})()}</small></div>
     </div>
     <div class="card" style="margin-top:14px"><div class="card-title">📌 Accesos de ${nombreHijo} — todo en solo lectura</div><div class="card-sub">Toque cualquier tarjeta para ver el detalle</div>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-top:10px">
@@ -6926,7 +6927,7 @@ const PERMISOS = {
     'calificaciones', 'uniforme', 'informes', 'mensajes', 'cuadernillos', 'recursos',
     'notifs', 'reportes', 'diagnostico', 'comunicados', 'plataformas'],
   docente: ['dashboard', 'asistencia', 'actividades', 'calificaciones',
-    'informes', 'mensajes', 'cuadernillos', 'recursos', 'avisos', 'plataformas', 'familias'],
+    'informes', 'mensajes', 'cuadernillos', 'recursos', 'avisos', 'plataformas', 'familias', 'uniforme'],
   estudiante: ['dashboard', 'avisosfam', 'actividades', 'calificaciones', 'asistencia',
     'uniforme', 'cuadernillos', 'recursos', 'notifs'],
   padre: ['dashboard', 'avisosfam', 'actividades', 'asistencia', 'calificaciones',
@@ -10058,41 +10059,170 @@ function setNota(alumnoId,campo,val){ const notas=loadStore('notas',[]); let n=n
     n={alumnoId, curso:(al&&al.cursoNombre)||currentUser.cursoNombre||''}; notas.push(n); }
   n[campo]=val===''?null:parseFloat(val); saveStore('notas',notas); }
 
-// ============ UNIFORME ============
-/** Guarda el tilde de una prenda del uniforme (queda en el equipo y lo ve el padre). */
-function marcarUniforme(el){
-  try{
-    const u = loadStore('uniforme', {});
-    const id = el.getAttribute('data-al'), k = el.getAttribute('data-k');
-    u[id] = u[id] || {}; u[id][k] = !!el.checked;
-    saveStore('uniforme', u);
-    toast((el.checked?'✅ Entregado: ':'⬜ Sin entregar: ')+k);
-  }catch(e){}
+// ============ UNIFORME — SOLO 3 ESTADOS (vive solo en la PWA) ============
+/* 👕 El control de uniforme tiene TRES opciones y nada más:
+ *      ✅ COMPLETO     → vino con el uniforme completo
+ *      ⚠️ INCOMPLETO   → vino, pero le falta una prenda
+ *      🚫 SIN UNIFORME → no vino con uniforme
+ * ⚠️ Se guarda SOLO en este celular / en la app. NO se envía a la planilla
+ *    y NO cuenta como calificación. */
+const UNI_ESTADOS = [
+  { k: 'completo',   t: 'COMPLETO',     ic: '✅', bg: '#F0FDF4', br: '#BBF7D0', fg: '#166534' },
+  { k: 'incompleto', t: 'INCOMPLETO',   ic: '⚠️', bg: '#FFFBEB', br: '#FDE68A', fg: '#92400E' },
+  { k: 'sin',        t: 'SIN UNIFORME', ic: '🚫', bg: '#FEF2F2', br: '#FECACA', fg: '#991B1B' }
+];
+window.__uniFiltro = window.__uniFiltro || 'todos';
+
+function uniStore() { try { const u = loadStore('uni_estado', {}); return (u && typeof u === 'object') ? u : {}; } catch (e) { return {}; } }
+function uniHoy() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 }
-const KIT_UNIFORME=[{p:'Remera oficial (2)',e:true,f:'12/03/2026'},{p:'Pantalón / pollera (1)',e:true,f:'12/03/2026'},{p:'Short de educación física (1)',e:true,f:'12/03/2026'},{p:'Buzo de invierno (1)',e:false,f:'pendiente'},{p:'Pares de medias (2)',e:true,f:'12/03/2026'}];
-function renderUniforme(){
-  const isDoc=currentUser.role==='docente'||currentUser.role==='director';
-  const isPadre=currentUser.role==='padre';
-  const nombre = isPadre ? currentUser.hijo : currentUser.name;
-  if(isDoc){
-    const alumnos = (typeof alumnosCurso==='function' && alumnosCurso().length) ? alumnosCurso() : ALUMNOS_SEED;
-    const cursoTxt = (alumnos[0] && (alumnos[0].cursoNombre || alumnos[0].grado)) || 'Mi curso';
-    const __uni = loadStore('uniforme', {});
-    return `<div class="card"><div class="card-title">👕 Entrega de uniforme — ${cursoTxt}</div><div class="card-sub">Marque lo entregado a cada alumno • queda registrado y el padre lo ve</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0"><select class="select" style="width:auto">${cursos.map(c=>`<option ${c.nombre===cursoTxt?'selected':''}>${c.nombre}</option>`).join('')||'<option>—</option>'}</select><button class="btn btn-ghost" onclick="toast('✅ Kit completo marcado a todo el curso')">✅ Kit completo al curso</button></div>
-      <div class="table-wrap"><table><tr><th>#</th><th>Alumno</th><th>Remera</th><th>Pantalón</th><th>Short EF</th><th>Buzo</th><th>Estado</th></tr>
-      ${alumnos.map((a,i)=>`<tr><td>${i+1}</td><td><b>${a.nombre}</b><br><span style="font-size:11px;color:var(--muted)">${a.id}</span></td>
-        ${['remera','pantalon','short','buzo'].map(k=>`<td><input type="checkbox" data-al="${a.id}" data-k="${k}" ${((__uni[a.id]||{})[k])?'checked':''} onchange="marcarUniforme(this)"></td>`).join('')}
-        <td><span class="pill pill-gray">—</span></td></tr>`).join('')}
-      </table></div></div>`;
+function uniDe(id) { const u = uniStore()[String(id)]; return (u && u.estado) ? u : null; }
+function uniEstado(k) { return UNI_ESTADOS.find(x => x.k === k) || null; }
+
+/** Marca el estado de UN alumno. Solo acepta los 3 estados. */
+function uniSet(id, estado) {
+  if (!uniEstado(estado)) return toast('⚠️ Solo hay tres opciones: COMPLETO, INCOMPLETO o SIN UNIFORME');
+  const u = uniStore();
+  u[String(id)] = { estado: estado, fecha: uniHoy(), por: (currentUser && (currentUser.name || '')) || '' };
+  saveStore('uni_estado', u);
+  const e = uniEstado(estado);
+  toast(e.ic + ' ' + e.t);
+  if (currentView === 'uniforme') uniRepintar();
+}
+/** Marca a TODO el curso con el mismo estado (con confirmación). */
+function uniSetTodos(estado) {
+  const e = uniEstado(estado);
+  if (!e) return;
+  const alumnos = (typeof alumnosCurso === 'function' && alumnosCurso().length) ? alumnosCurso() : [];
+  if (!alumnos.length) return toast('⚠️ No hay alumnos activos en el curso');
+  if (!confirm('¿Marcar ' + e.t + ' a los ' + alumnos.length + ' alumnos del curso?')) return;
+  const u = uniStore();
+  alumnos.forEach(a => { u[String(a.id)] = { estado: estado, fecha: uniHoy(), por: (currentUser && currentUser.name) || '' }; });
+  saveStore('uni_estado', u);
+  toast(e.ic + ' ' + e.t + ' a todo el curso (' + alumnos.length + ')');
+  uniRepintar();
+}
+/** Borra el control del curso (para volver a empezar). */
+function uniBorrarTodo() {
+  if (!confirm('¿Borrar el control de uniforme de todo el curso?')) return;
+  saveStore('uni_estado', {});
+  window.__uniFiltro = 'todos';
+  toast('🧹 Control de uniforme borrado');
+  uniRepintar();
+}
+function uniFiltrar(k) { window.__uniFiltro = k; uniRepintar(); }
+function uniRepintar() {
+  const c = document.getElementById('appContent');
+  if (c && currentView === 'uniforme') c.innerHTML = renderUniforme();
+}
+
+/** Cuenta cuántos hay en cada estado (para el resumen). */
+function uniResumen(alumnos) {
+  const u = uniStore(), r = { completo: 0, incompleto: 0, sin: 0, sinmarcar: 0 };
+  (alumnos || []).forEach(a => {
+    const e = u[String(a.id)];
+    if (e && e.estado && r[e.estado] != null) r[e.estado]++; else r.sinmarcar++;
+  });
+  return r;
+}
+
+function renderUniforme() {
+  const rol = (currentUser && currentUser.role) || '';
+  const isDoc = rol === 'docente' || rol === 'director';
+
+  /* ---------------- DOCENTE / DIRECCIÓN: los 3 botones por alumno ---------------- */
+  if (isDoc) {
+    const alumnos = (typeof alumnosCurso === 'function' && alumnosCurso().length) ? alumnosCurso() : [];
+    const cursoTxt = (alumnos[0] && (alumnos[0].cursoNombre || alumnos[0].grado)) || currentUser.cursoNombre || 'Mi curso';
+    const r = uniResumen(alumnos);
+    const filtro = window.__uniFiltro || 'todos';
+    const u = uniStore();
+
+    const chip = (k, txt, n, col) => `<button onclick="uniFiltrar('${k}')"
+      style="cursor:pointer;border:1px solid ${filtro === k ? col.br : '#E2E8F0'};background:${filtro === k ? col.bg : 'white'};
+      color:${col.fg};border-radius:11px;padding:8px 12px;font:inherit;font-size:12px;font-weight:700">
+      ${txt} <span style="background:${col.br};border-radius:20px;padding:1px 7px;margin-left:4px">${n}</span></button>`;
+
+    const lista = alumnos.filter(a => {
+      if (filtro === 'todos') return true;
+      const e = u[String(a.id)];
+      if (filtro === 'sinmarcar') return !(e && e.estado);
+      return !!(e && e.estado === filtro);
+    });
+
+    return `<div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">
+        <div><div class="card-title">👕 Uniforme — ${cursoTxt}</div>
+          <div class="card-sub">Elegí una de las tres opciones para cada alumno. Control del día <b>${uniHoy()}</b>.</div></div>
+        <span class="pill" style="background:#EFF6FF;color:#1E3A8A;border:1px solid #BFDBFE">📱 Solo en la app</span>
+      </div>
+
+      <div style="display:flex;gap:7px;flex-wrap:wrap;margin:12px 0">
+        ${chip('todos', 'Todos', alumnos.length, { bg: '#F8FAFC', br: '#CBD5E1', fg: '#0F172A' })}
+        ${chip('completo', '✅ Completo', r.completo, UNI_ESTADOS[0])}
+        ${chip('incompleto', '⚠️ Incompleto', r.incompleto, UNI_ESTADOS[1])}
+        ${chip('sin', '🚫 Sin uniforme', r.sin, UNI_ESTADOS[2])}
+        ${chip('sinmarcar', '⬜ Sin marcar', r.sinmarcar, { bg: '#F8FAFC', br: '#CBD5E1', fg: '#475569' })}
+      </div>
+
+      <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px">
+        <button class="btn btn-primary" style="font-size:12px;padding:8px 12px" onclick="uniSetTodos('completo')">✅ Marcar todo COMPLETO</button>
+        <button class="btn btn-ghost" style="font-size:12px;padding:8px 12px" onclick="uniBorrarTodo()">🧹 Borrar el control</button>
+      </div>
+
+      ${lista.length ? lista.map((a, i) => {
+      const e = u[String(a.id)] || {};
+      return `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:9px 0;border-top:1px solid #E2E8F0">
+        <div style="min-width:170px;flex:1">
+          <b style="font-size:13px">${i + 1}. ${a.nombre || ''}</b><br>
+          <span style="font-size:11px;color:var(--muted)">CI ${a.cedula || a.id}${e.fecha ? ' • marcado ' + e.fecha : ' • sin marcar'}</span>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          ${UNI_ESTADOS.map(st => {
+        const on = e.estado === st.k;
+        return `<button onclick="uniSet('${a.id}','${st.k}')"
+              style="cursor:pointer;border:1px solid ${on ? st.br : '#E2E8F0'};background:${on ? st.bg : 'white'};
+              color:${on ? st.fg : '#64748B'};border-radius:9px;padding:7px 10px;font:inherit;font-size:11.5px;font-weight:${on ? 800 : 600}">
+              ${st.ic} ${st.t}</button>`;
+      }).join('')}
+        </div>
+      </div>`;
+    }).join('') : `<div style="padding:14px;text-align:center;color:var(--muted);font-size:12.5px">No hay alumnos en este filtro.</div>`}
+
+      <div style="margin-top:12px;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:10px;padding:10px 12px;font-size:11.5px;color:#1E3A8A">
+        📱 <b>Se guarda solo en esta app</b> (en este celular). No se envía a la planilla y no cuenta como calificación.
+      </div>
+    </div>`;
   }
-  const listos=KIT_UNIFORME.filter(k=>k.e).length;
-  return `<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px"><div><div class="card-title">👕 Uniforme — ${nombre}</div><div class="card-sub">${isPadre? currentUser.hijoCursoNombre||'' : ''} • 👁️ Solo lectura</div></div><span class="pill ${listos===KIT_UNIFORME.length?'pill-green':'pill-amber'}">${listos}/${KIT_UNIFORME.length} prendas entregadas</span></div>
-    <div class="table-wrap" style="margin-top:12px"><table><tr><th>Prenda</th><th>Estado</th><th>Fecha entrega</th></tr>
-    ${KIT_UNIFORME.map(k=>`<tr><td>${k.p}</td><td>${k.e?'<span class="pill pill-green">✅ Entregado</span>':'<span class="pill pill-amber">⏳ Pendiente</span>'}</td><td style="font-size:12px;color:var(--muted)">${k.f}</td></tr>`).join('')}
-    </table></div>
-    <div style="margin-top:12px;background:#FFFBEB;border:1px solid #FDE68A;padding:10px;border-radius:10px;font-size:12px">ℹ️ El uniforme es gratuito y lo entrega la escuela. Esta lista solo informa lo que ya retiró ${isPadre? nombre.split(' ')[0] : 'usted'}. Si falta una prenda, escriba a la maestra.</div>
-    <button class="btn btn-primary" style="width:100%;margin-top:10px" onclick="navigate('mensajes')">✉️ Consultar por una prenda faltante</button></div>`;
+
+  /* ---------------- PADRE / ALUMNO: solo mirar ---------------- */
+  const esPadre = rol === 'padre';
+  const nombre = esPadre ? (currentUser.hijo || '') : (currentUser.name || '');
+  const id = String((esPadre ? (currentUser.hijoId || currentUser.ci) : (currentUser.codigo || currentUser.ci)) || '');
+  const mio = uniDe(id);
+  const st = mio ? uniEstado(mio.estado) : null;
+
+  return `<div class="card">
+    <div class="card-title">👕 Uniforme — ${nombre}</div>
+    <div class="card-sub">${esPadre ? (currentUser.hijoCursoNombre || '') : (currentUser.cursoNombre || '')} • 👁️ Solo lectura</div>
+    ${st ? `<div style="margin-top:14px;background:${st.bg};border:1px solid ${st.br};border-radius:14px;padding:16px;text-align:center">
+        <div style="font-size:34px">${st.ic}</div>
+        <b style="font-size:19px;color:${st.fg}">${st.t}</b>
+        ${mio && mio.fecha ? `<div style="font-size:11.5px;color:#475569;margin-top:4px">Registrado el ${mio.fecha}</div>` : ''}
+      </div>`
+      : `<div style="margin-top:14px;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:14px;padding:16px;text-align:center">
+        <div style="font-size:30px">👕</div>
+        <b style="font-size:14px;color:#334155">Todavía sin registrar en este celular</b>
+        <div style="font-size:12px;color:#64748B;margin-top:5px">El control lo hace la maestra desde su celular.
+          Si tenés una duda sobre el uniforme, escribile.</div>
+      </div>`}
+    <div style="margin-top:12px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:10px 12px;font-size:11.5px;color:#92400E">
+      ℹ️ El uniforme es <b>gratuito</b> y lo entrega la escuela. Este control es solo informativo: <b>no es una calificación</b>.
+    </div>
+    <button class="btn btn-primary" style="width:100%;margin-top:10px" onclick="navigate('mensajes')">✉️ Consultar por el uniforme</button>
+  </div>`;
 }
 
 // ============ INFORMES ============
@@ -10313,5 +10443,5 @@ let deferredPrompt=null; window.addEventListener('beforeinstallprompt',e=>{e.pre
 function promptInstall(){ if(deferredPrompt) deferredPrompt.prompt(); else toast('📲 Menú ⋮ → Agregar a pantalla principal'); }
 </script>
 <div id="printArea"></div>
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a57844cf2f85a6c6',t:'MTc5NDE3OTYxMg=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a57844cf2f85a6c6',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a57873124b860174',t:'MTc5NDE4MTUwNg=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a57873124b860174',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
