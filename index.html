@@ -279,7 +279,7 @@ body{padding-bottom:env(safe-area-inset-bottom)}
 
     <div class="pt-foot">
       <b>Portal Educativo 1.281</b> · uso oficial de la escuela<br>
-      Funciona sin internet en el celular · <span class="pt-ver" id="selloVersion">PWA v3.70</span>
+      Funciona sin internet en el celular · <span class="pt-ver" id="selloVersion">PWA v3.71</span>
     </div>
   </div>
 </div>
@@ -439,7 +439,7 @@ function loadStore(k, fb){ try{ return JSON.parse(localStorage.getItem(k)) ?? fb
 // FORZAR ACTUALIZACIÓN A v2.1 - Tareas interactivas
 const APP_VERSION='2.2-corregida';
 /** 🏷️ sello que se muestra en el menú (dirección + versión de la PWA). Se cambia solo acá. */
-const APP_VERSION_UI='v3.70';
+const APP_VERSION_UI='v3.71';
 if(localStorage.getItem('app_version') !== APP_VERSION){
   localStorage.setItem('actividades', JSON.stringify(actividadesSeed));
   localStorage.setItem('entregasInteractivas', JSON.stringify([]));
@@ -605,6 +605,37 @@ function loginDocente(){
   startApp();
 }
 
+/* ❌ Cédula que no aparece: explica las DOS causas y el botón exacto que debe tocar Dirección.
+ *  Se usa cuando la búsqueda en la planilla terminó (bien o mal) y la cédula no está. */
+function estNoEncontrado_(bruto) {
+  const dig = t => String(t || '').replace(/[^0-9]/g, '');
+  const hay = (() => { try { return (typeof alumnosStore === 'function' ? alumnosStore().length : 0); } catch (e) { return 0; } })();
+  if (!hay) {
+    return openModal(`<h3 style="margin:0 0 6px">📴 Este celular no tiene el padrón</h3>
+      <div style="font-size:12.5px;color:#334155">Todavía no se descargó la lista de alumnos.</div>
+      <div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:10px;margin-top:9px;font-size:12.5px;color:#92400E">
+        Conectate a <b>internet</b> (datos o wifi) y volvé a intentar. La primera descarga tarda unos segundos.</div>`);
+  }
+  return openModal(`<h3 style="margin:0 0 6px">❌ Esa cédula no llegó a la planilla</h3>
+    <div style="font-size:12.5px;color:#334155">Se buscó <b>${dig(bruto)}</b> en la planilla de la escuela y no aparece.
+      Hay dos causas posibles:</div>
+    <div style="background:#FEF2F2;border:1px solid #FCA5A5;border-radius:10px;padding:10px;margin-top:9px;font-size:12.5px;color:#991B1B">
+      <b>1) La ficha se cargó solo en la computadora de Dirección</b><br>
+      <span style="font-size:12px">En la computadora: <b>Dirección → 👥 Alumnos → «☁️ Subir fichas a la planilla»</b>.
+      Si ahí aparece el cartel rojo <i>«alumnos que todavía NO están en la planilla»</i>, es esto.
+      Después tocá <b>🔄 Actualizar</b> en este celular y probá otra vez.</span>
+    </div>
+    <div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:10px;margin-top:8px;font-size:12.5px;color:#92400E">
+      <b>2) La cédula está mal escrita</b><br>
+      <span style="font-size:12px">Solo números, sin puntos ni guiones (si es extranjera, solo los números).</span>
+    </div>
+    <div style="font-size:11.5px;color:#475569;margin-top:9px">En este celular hay <b>${hay}</b> alumnos descargados.</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+      <button class="btn btn-primary" onclick="closeModal();loginEstudiante()">🔄 Reintentar</button>
+      <button class="btn btn-ghost" onclick="closeModal()">Cerrar</button>
+    </div>`);
+}
+
 function loginEstudiante(){
   try{
     const el1=document.getElementById('estCodigo'), el2=document.getElementById('estPin');
@@ -638,15 +669,13 @@ function loginEstudiante(){
         window.__bajandoPadron = false;
         if(okk) return loginEstudiante();          // reintenta una vez, ya sin volver a bajar
         toast('⚠️ No se pudo traer el padrón. Revisá la conexión.');
+        estNoEncontrado_(bruto);                   // y aun así, explica qué hacer
       });
       return;
     }
 
     if(!al){
-      const hay = (()=>{ try{ return (typeof alumnosStore==='function'? alumnosStore().length : 0); }catch(e){ return 0; } })();
-      return toast(hay
-        ? '❌ La cédula ' + dig(bruto) + ' no está en el padrón. Pedile a Dirección que la revise.'
-        : '⚠️ Este celular no tiene el padrón descargado. Abrí Dirección → Alumnos una vez con internet.');
+      return estNoEncontrado_(bruto);
     }
 
     // 🔑 PIN de la ficha (si el alumno tiene uno asignado, se exige)
@@ -754,7 +783,7 @@ function loginPadre(){
     if(!al){
       const hay = (()=>{ try{ return (typeof alumnosStore==='function'? alumnosStore().length : 0); }catch(e){ return 0; } })();
       return toast(hay
-        ? '❌ La cédula ' + dig(bruto) + ' no está en el padrón. Pedile a Dirección que la revise.'
+        ? '❌ La cédula ' + dig(bruto) + ' no está en la planilla de la escuela. Pedile a Dirección que toque «☁️ Subir fichas a la planilla».'
         : '⚠️ Este celular no tiene el padrón descargado. Abrí la app con internet una vez.');
     }
 
@@ -5490,14 +5519,19 @@ function alumnosStore(){
   }catch(e){}
   return arr;
 }
-function guardarAlumnos(arr){
+function guardarAlumnos(arr, cb){
   saveStore('adm_alumnos', arr);
   // ☁️ se sube solo a la hoja ALUMNOS (si no hay internet, queda pendiente)
   try{
     if(typeof alumnosSubir==='function'){
-      setTimeout(()=>{ alumnosSubir((ok,det)=>{ if(!ok) alumnosPendSet(true); }); }, 400);
-    }
-  }catch(e){}
+      setTimeout(()=>{
+        alumnosSubir((ok,det)=>{
+          if(!ok) alumnosPendSet(true);
+          if(typeof cb==='function'){ try{ cb(ok,det); }catch(e){} }
+        });
+      }, 400);
+    } else { if(typeof cb==='function'){ try{ cb(false,'sin subida'); }catch(e){} } }
+  }catch(e){ if(typeof cb==='function'){ try{ cb(false,String(e)); }catch(e2){} } }
   // refrescar en memoria para que el login de padres tome los cambios sin recargar
   arr.forEach(a=>{
     const existente = ALUMNOS_SEED.find(x=>soloDig(x.cedula)===soloDig(a.cedula));
@@ -5547,6 +5581,13 @@ function renderAlumnos(){
         <button class="btn btn-ghost" onclick="navigate('movimientos')">🎓 Movimientos</button>
       </div>
     </div>
+    ${alumnosPendiente() ? `<div style="background:#FEF2F2;border:2px solid #FCA5A5;border-radius:12px;padding:11px 13px;margin-top:10px">
+      <div style="font-size:13px;font-weight:800;color:#991B1B">⚠️ Hay alumnos que todavía NO están en la planilla</div>
+      <div style="font-size:12px;color:#7F1D1D;margin-top:3px">
+        Mientras no estén en la planilla, <b>esos alumnos y sus padres no pueden entrar desde su celular</b>
+        (el celular busca la cédula en la planilla).</div>
+      <button class="btn btn-primary" style="margin-top:8px;background:#B91C1C" onclick="alumnosSubirUI()">☁️ Subir fichas a la planilla ahora</button>
+    </div>` : ''}
     <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px">
       ${alumnosBadge()}
       <button class="btn btn-ghost" onclick="alumnosSubirUI()">☁️ Subir fichas a la planilla</button>
@@ -5765,8 +5806,17 @@ function guardarAlumnoForm(id){
   };
   if(id){ const i=arr.findIndex(x=>x.id===id); arr[i]=Object.assign({},arr[i],datos); }
   else { datos.id=(Math.max(0,...arr.map(x=>x.id||0))+1); arr.push(datos); }
-  guardarAlumnos(arr);
-  closeModal(); refrescar('alumnos'); toast(id? '✅ Alumno actualizado':'✅ Alumno agregado');
+  // ☁️ se avisa EN VOZ ALTA si la ficha llegó a la planilla:
+  //    si no llega, el alumno no puede entrar desde su celular.
+  guardarAlumnos(arr, (ok, det) => {
+    if(ok) toast('✅ ' + (id?'Alumno actualizado':'Alumno agregado') + ' y subido a la planilla');
+    else {
+      alumnosPendSet(true);
+      toast('⚠️ Guardado en ESTE equipo, pero no subió a la planilla. Tocá «☁️ Subir fichas a la planilla».');
+    }
+  });
+  closeModal(); refrescar('alumnos');
+  toast('⏳ ' + (id?'Guardando cambios…':'Agregando alumno…'));
 }
 function eliminarAlumno(id){
   const arr=alumnosStore();
@@ -9854,5 +9904,5 @@ let deferredPrompt=null; window.addEventListener('beforeinstallprompt',e=>{e.pre
 function promptInstall(){ if(deferredPrompt) deferredPrompt.prompt(); else toast('📲 Menú ⋮ → Agregar a pantalla principal'); }
 </script>
 <div id="printArea"></div>
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a577623ffb53a44e',t:'MTc5NDE3MDMzMg=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a577623ffb53a44e',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a57781b72e63ad09',t:'MTc5NDE3MTYyMA=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a57781b72e63ad09',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
