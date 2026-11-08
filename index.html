@@ -279,7 +279,7 @@ body{padding-bottom:env(safe-area-inset-bottom)}
 
     <div class="pt-foot">
       <b>Portal Educativo 1.281</b> · uso oficial de la escuela<br>
-      Funciona sin internet en el celular · <span class="pt-ver" id="selloVersion">PWA v3.69</span>
+      Funciona sin internet en el celular · <span class="pt-ver" id="selloVersion">PWA v3.70</span>
     </div>
   </div>
 </div>
@@ -439,7 +439,7 @@ function loadStore(k, fb){ try{ return JSON.parse(localStorage.getItem(k)) ?? fb
 // FORZAR ACTUALIZACIÓN A v2.1 - Tareas interactivas
 const APP_VERSION='2.2-corregida';
 /** 🏷️ sello que se muestra en el menú (dirección + versión de la PWA). Se cambia solo acá. */
-const APP_VERSION_UI='v3.69';
+const APP_VERSION_UI='v3.70';
 if(localStorage.getItem('app_version') !== APP_VERSION){
   localStorage.setItem('actividades', JSON.stringify(actividadesSeed));
   localStorage.setItem('entregasInteractivas', JSON.stringify([]));
@@ -4909,7 +4909,7 @@ function renderAvisosFamilia() {
         </div>
         ${nuevo ? '<span class="pill" style="background:#FEF3C7;color:#92400E;font-size:10px">NUEVO</span>' : ''}
       </div>
-      <div style="font-size:12.5px;color:#334155;white-space:pre-wrap;margin-top:8px">${String(a.mensaje || '').replace(/</g, '&lt;')}</div>
+      <div style="font-size:12.5px;color:#334155;white-space:pre-wrap;margin-top:8px">${String(a.mensaje || '').replace(/\[alumno\]/gi, String(a.alumno || (currentUser && (currentUser.hijo || currentUser.name)) || '')).replace(/</g, '&lt;')}</div>
     </div>`;
   }).join('') : `<div class="card"><div class="card-title">📢 Avisos de la escuela</div>
       <div class="card-sub">Todavía no hay avisos para ${famMiCurso_().label || 'tu curso'}.</div>
@@ -5082,12 +5082,13 @@ function renderFamilias() {
       font-size:11.5px;color:#334155;white-space:pre-wrap;margin-bottom:10px">${famTexto_('', '', '').replace(/</g, '&lt;')}</div>
 
     <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <button class="btn btn-whatsapp" onclick="famEnviar()">${modo === 'alumno' ? '💬 Enviar a esa familia' : '💬 Ver familias y enviar'}</button>
+      <button class="btn btn-whatsapp" onclick="famEnviar()">📱 Publicar en la app + 💬 WhatsApp</button>
+      <button class="btn btn-primary" onclick="famSoloApp()">📱 Solo a la app</button>
       <button class="btn btn-ghost" onclick="famCopiar()">📋 Copiar el mensaje</button>
     </div>
     <div style="font-size:11px;color:var(--muted);margin-top:8px">
-      💡 Es gratis y no necesita cuenta de Meta. Cada familia se abre con el mensaje ya escrito:
-      solo hay que tocar <b>enviar</b> en WhatsApp.
+      📱 <b>Publicar en la app:</b> la familia lo ve en <b>📢 Avisos de la escuela</b> dentro de la PWA (con fecha y tu nombre), aunque no abra WhatsApp.<br>
+      💬 <b>WhatsApp:</b> además se abre la conversación con el mensaje escrito. Es gratis y el último toque de enviar lo das vos.
     </div>
   </div>
 
@@ -5136,58 +5137,104 @@ function famCopiar() {
   waCopiarTexto_();
 }
 
-/** Manda el aviso: a TODO el curso o a UN solo alumno (y lo guarda en el historial). */
-function famEnviar() {
+/* ---------- 🧾 v3.70: preparar · guardar · enviar (en ese orden) ----------
+ *  Antes, si el alumno no tenía celular del padre, el aviso se cortaba ANTES
+ *  de guardarse: no llegaba ni a la app. Ahora PRIMERO se publica en la app
+ *  de la familia (planilla) y DESPUÉS se ofrece WhatsApp, que es opcional.
+ * ------------------------------------------------------------------------ */
+/** Valida la pantalla y devuelve todo lo necesario, o null si falta algo. */
+function famPreparar_() {
   const ti = document.getElementById('famTitulo'), ta = document.getElementById('famMensaje'), sel = document.getElementById('famCurso');
   const mensaje = ta ? String(ta.value || '').trim() : '';
-  if (!mensaje) return toast('Escribí el mensaje del aviso');
+  if (!mensaje) { toast('Escribí el mensaje del aviso'); return null; }
   const label = sel ? sel.value : '';
   const curso = famCursoDeLabel_(label);
   const titulo = (ti ? String(ti.value || '').trim() : '') || '(sin título)';
   const modo = window.__famModo || 'todos';
-
-  /* ---------- 👤 UN SOLO ALUMNO ---------- */
   if (modo === 'alumno') {
     const al = famAlumnoElegido_();
-    if (!al) return toast('Elegí el alumno al que le querés avisar');
-    const nombre = String(al.nombre || '').trim();
-    const tel = waTel_(al.celPadre);
-    const texto = famTexto_(ti ? ti.value : '', mensaje, nombre);
-    if (!tel) {
-      return openModal(`<h3>💬 Avisar a una familia</h3>
-        <div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:10px;font-size:12.5px;color:#92400E">
-          <b>${nombre}</b> no tiene el <b>celular del padre</b> cargado, así que no se puede mandar por WhatsApp.</div>
-        <div style="font-size:11.5px;color:#475569;margin-top:8px">Se completa en <b>👥 Alumnos → ✏️</b> (lo hace Dirección).<br>
-          Mientras tanto podés usar <b>📋 Copiar el mensaje</b>.</div>`);
-    }
-    const avisoUnico = { id: 'F' + Date.now(), titulo: titulo, mensaje: mensaje, curso: label,
-      fecha: hoyISO(), familias: 1, destino: 'ALUMNO', alumno: nombre,
-      docente: (currentUser && currentUser.name) || '' };
-    const arrU = famStore(); arrU.push(avisoUnico); famGuardar(arrU);
-    try { famSubir_(avisoUnico, () => { }); } catch (e) { }
-    waListaModal_('Aviso para la familia de ' + nombre, texto,
-      { con: [{ alumno: nombre, cel: al.celPadre || '', tel: tel, curso: label }], sin: [] });
-    return;
+    if (!al) { toast('Elegí el alumno al que le querés avisar'); return null; }
+    return { modo: 'alumno', label, curso, titulo, mensaje, alumno: al,
+      texto: famTexto_(ti ? ti.value : '', mensaje, al.nombre) };
   }
+  return { modo: 'curso', label, curso, titulo, mensaje, alumno: null,
+    datos: waPadresDeCurso_(curso), texto: famTexto_(ti ? ti.value : '', mensaje) };
+}
 
-  /* ---------- 👥 TODO EL CURSO ---------- */
-  const datos = waPadresDeCurso_(curso);
-  if (!datos.con.length) {
-    return openModal(`<h3>💬 Avisar a las familias</h3>
-      <div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:10px;font-size:12.5px;color:#92400E">
-        No hay ningún <b>celular del padre</b> cargado en <b>${label || 'tu curso'}</b>.</div>
-      <div style="font-size:11.5px;color:#475569;margin-top:8px">Se completa en <b>👥 Alumnos → ✏️</b> (lo hace Dirección).</div>`);
+/** Publica el aviso en la app de la familia (queda en el historial y en la planilla). */
+function famGuardarAviso_(p) {
+  // 🐞 v3.70: si es para UN alumno, se guarda el texto YA con su nombre
+  //    (antes quedaba «[alumno]» escrito y el padre lo veía así en la app)
+  const nombreAl = p.modo === 'alumno' ? String((p.alumno && p.alumno.nombre) || '') : '';
+  const mensajeGuardar = nombreAl ? String(p.mensaje || '').replace(/\[alumno\]/gi, nombreAl) : p.mensaje;
+  const aviso = {
+    id: 'F' + Date.now(),
+    titulo: p.titulo, mensaje: mensajeGuardar, curso: p.label, fecha: hoyISO(),
+    familias: p.modo === 'alumno' ? 1 : (p.datos ? p.datos.con.length : 0),
+    destino: p.modo === 'alumno' ? 'ALUMNO' : 'CURSO',
+    alumno: p.modo === 'alumno' ? String(p.alumno.nombre || '') : '',
+    docente: (currentUser && currentUser.name) || ''
+  };
+  const arr = famStore(); arr.push(aviso); famGuardar(arr);
+  try { famSubir_(aviso, () => { }); } catch (e) { }   // ☁️ a la planilla → app del padre
+  return aviso;
+}
+
+/** Pantalla de confirmación: dice claramente dónde quedó el aviso. */
+function famConfirmar_(aviso, p, sinCelular) {
+  const esUno = aviso.destino === 'ALUMNO';
+  openModal(`<h3 style="margin:0 0 4px">✅ Aviso publicado</h3>
+    <div class="card-sub" style="margin-bottom:10px">Ya está en la app de ${esUno ? 'esa familia' : 'las familias del curso'}.</div>
+    <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:10px;padding:10px;font-size:12.5px;color:#166534">
+      📱 <b>En su app:</b> ${esUno ? 'la familia de ' + aviso.alumno : 'todas las familias de ' + (p.label || 'tu curso')}
+      lo ven en <b>📢 Avisos de la escuela</b>, con la fecha y tu nombre.
+    </div>
+    ${sinCelular ? `<div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:10px;font-size:12px;color:#92400E;margin-top:8px">
+      💬 <b>Por WhatsApp no se pudo:</b> ${esUno ? aviso.alumno : 'la familia'} no tiene celular del padre cargado.
+      Igual <b>ya lo ve en la app</b>. Se completa en <b>👥 Alumnos → ✏️</b>.</div>` : `
+      <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:10px;padding:10px;font-size:12px;color:#1E3A8A;margin-top:8px">
+      💬 <b>Además por WhatsApp:</b> podés abrir la conversación con el mensaje escrito (es gratis y manual).
+      </div>`}
+    <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:10px;font-size:11.5px;color:#334155;white-space:pre-wrap;margin-top:10px;max-height:110px;overflow:auto">${(p.texto || '').replace(/</g, '&lt;')}</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+      ${!sinCelular ? `<button class="btn btn-whatsapp" onclick="famAbrirWA_()">💬 Abrir WhatsApp</button>` : ''}
+      <button class="btn btn-ghost" onclick="closeModal();navigate('familias')">Listo</button>
+    </div>`);
+  window.__famWA = sinCelular ? null : { titulo: aviso.titulo, texto: p.texto, p: p, aviso: aviso };
+}
+
+/** Abre la lista de WhatsApp del aviso que se acaba de publicar. */
+function famAbrirWA_() {
+  const d = window.__famWA; if (!d) return;
+  const p = d.p;
+  if (p.modo === 'alumno') {
+    waListaModal_('Aviso para la familia de ' + p.alumno.nombre, d.texto,
+      { con: [{ alumno: p.alumno.nombre, cel: p.alumno.celPadre || '', tel: waTel_(p.alumno.celPadre), curso: p.label }], sin: [] });
+  } else {
+    waListaModal_('Aviso a las familias · ' + (p.label || 'mi curso'), d.texto, p.datos);
   }
-  // queda en el historial del docente
-  const arr = famStore();
-  const aviso = { id: 'F' + Date.now(), titulo: titulo, mensaje: mensaje, curso: label,
-    fecha: hoyISO(), familias: datos.con.length, destino: 'CURSO', alumno: '',
-    docente: (currentUser && currentUser.name) || '' };
-  arr.push(aviso);
-  famGuardar(arr);
-  // ☁️ queda también en la planilla (se ve desde cualquier aparato)
-  try { famSubir_(aviso, () => { }); } catch (e) { }
-  waListaModal_('Aviso a las familias · ' + (label || 'mi curso'), famTexto_(ti ? ti.value : '', mensaje), datos);
+}
+
+/** 💬 Botón principal: publica en la app Y abre WhatsApp. */
+function famEnviar() {
+  const p = famPreparar_(); if (!p) return;
+  const aviso = famGuardarAviso_(p);
+  if (p.modo === 'alumno') {
+    const tel = waTel_(p.alumno.celPadre);
+    if (!tel) return famConfirmar_(aviso, p, true);
+    return waListaModal_('Aviso para la familia de ' + p.alumno.nombre, p.texto,
+      { con: [{ alumno: p.alumno.nombre, cel: p.alumno.celPadre || '', tel: tel, curso: p.label }], sin: [] });
+  }
+  if (!p.datos.con.length) return famConfirmar_(aviso, p, true);
+  waListaModal_('Aviso a las familias · ' + (p.label || 'mi curso'), p.texto, p.datos);
+}
+
+/** 📲 Botón secundario: publica SOLO en la app de la familia (no abre WhatsApp). */
+function famSoloApp() {
+  const p = famPreparar_(); if (!p) return;
+  const aviso = famGuardarAviso_(p);
+  const sinCel = (p.modo === 'alumno') ? !waTel_(p.alumno.celPadre) : !p.datos.con.length;
+  famConfirmar_(aviso, p, sinCel);
 }
 
 /** Reenvía un aviso guardado (respeta si era para todo el curso o para un alumno). */
@@ -9807,5 +9854,5 @@ let deferredPrompt=null; window.addEventListener('beforeinstallprompt',e=>{e.pre
 function promptInstall(){ if(deferredPrompt) deferredPrompt.prompt(); else toast('📲 Menú ⋮ → Agregar a pantalla principal'); }
 </script>
 <div id="printArea"></div>
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a5774ba339c6c279',t:'MTc5NDE2OTQwNQ=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a5774ba339c6c279',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a577623ffb53a44e',t:'MTc5NDE3MDMzMg=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a577623ffb53a44e',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
