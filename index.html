@@ -284,7 +284,7 @@ body{padding-bottom:env(safe-area-inset-bottom)}
 
     <div class="pt-foot">
       <b>Portal Educativo 1.281</b> · uso oficial de la escuela<br>
-      Funciona sin internet en el celular · <span class="pt-ver" id="selloVersion">PWA v3.83</span>
+      Funciona sin internet en el celular · <span class="pt-ver" id="selloVersion">PWA v3.84</span>
     </div>
   </div>
 </div>
@@ -444,7 +444,7 @@ function loadStore(k, fb){ try{ return JSON.parse(localStorage.getItem(k)) ?? fb
 // FORZAR ACTUALIZACIÓN A v2.1 - Tareas interactivas
 const APP_VERSION='2.2-corregida';
 /** 🏷️ sello que se muestra en el menú (dirección + versión de la PWA). Se cambia solo acá. */
-const APP_VERSION_UI='v3.83';
+const APP_VERSION_UI='v3.84';
 if(localStorage.getItem('app_version') !== APP_VERSION){
   localStorage.setItem('actividades', JSON.stringify(actividadesSeed));
   localStorage.setItem('entregasInteractivas', JSON.stringify([]));
@@ -9788,6 +9788,7 @@ function renderCalificaciones(){
       </div>
       <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:6px">
         <button class="btn btn-primary" onclick="sincronizarNotas()">🔄 Volver a consultar</button>
+        <button class="btn btn-ghost" onclick="notasDiagnostico()">🩺 Ver qué pasó con la conexión</button>
         <button class="btn btn-whatsapp" onclick="navigate('mensajes')">✉️ Consultar a la maestra</button>
       </div>
       <p style="font-size:11px;color:var(--muted);margin-top:10px">No mostramos notas estimadas ni de ejemplo: solo se muestra lo que está en la planilla oficial.</p>
@@ -9899,6 +9900,62 @@ function sincronizarNotas(){
     toast('✅ Notas actualizadas desde la planilla de Google');
   });
 }
+/**
+ * 🩺 v3.84 — Diagnóstico de la conexión de notas, desde ESTE celular.
+ * Muestra, paso por paso, qué contestó Google al pedir las calificaciones.
+ */
+function notasDiagnostico(){
+  const grado = currentUser.hijoGrado || currentUser.grado;
+  const urls = notasApiUrls_(grado);
+  const soloDig = t => String(t||'').replace(/[^0-9]/g,'');
+  const ci = soloDig((currentUser.role==='padre'||currentUser.role==='estudiante') ? (currentUser.ci||'') : (currentUser.ci||currentUser.codigo||''));
+  openModal(`<h3 style="margin:0 0 4px">🩺 Conexión con la planilla de notas</h3>
+    <div class="card-sub" style="margin-bottom:8px">Esto es lo que pasa desde <b>este</b> celular al pedir las calificaciones.</div>
+    <div style="font-size:12px;margin-bottom:6px">📶 Wifi/datos: <b>${navigator.onLine===false?'❌ sin conexión':'✅ conectado'}</b></div>
+    <div style="font-size:12px;margin-bottom:6px">🌍 Internet real: <b id="dxNetNotas">midiendo…</b></div>
+    <div style="font-size:12px;margin-bottom:6px">🔗 Enlaces configurados: <b>${urls.length}</b> · cédula que se pide: <b>${ci || '—'}</b></div>
+    <div id="dxNotasRes" style="font-size:12px;color:#64748B;margin-top:8px">Probando…</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+      <button class="btn btn-ghost" onclick="closeModal();notasDiagnostico()">🔄 Probar otra vez</button>
+    </div>`);
+  try{
+    internetReal_((okk) => {
+      const el = document.getElementById('dxNetNotas');
+      if(el) el.innerHTML = okk ? '<span style="color:#166534">✅ sí navega</span>' : '<span style="color:#991B1B">❌ NO navega</span>';
+    });
+  }catch(e){}
+  const lineas = [];
+  let i = 0;
+  const pintar = () => {
+    const el = document.getElementById('dxNotasRes');
+    if(!el) return;
+    el.innerHTML = lineas.length
+      ? `<table style="width:100%;border-collapse:collapse;font-size:11.5px">${lineas.map(l =>
+          `<tr><td style="padding:5px;border-top:1px solid #E2E8F0"><b>${l.nombre}</b></td>
+           <td style="padding:5px;border-top:1px solid #E2E8F0;color:${l.ok?'#166534':'#991B1B'}">${l.estado}</td></tr>`).join('')}</table>`
+      : 'Probando…';
+  };
+  const paso = () => {
+    if(i >= urls.length){
+      lineas.push({ nombre: 'Resultado', estado: lineas.some(l=>l.ok)
+        ? '✅ se pudieron traer las notas'
+        : '❌ ningún enlace contestó. Si el internet real dice ✅, el navegador está bloqueando script.google.com (probá en Chrome, sin bloqueadores, o con datos móviles).',
+        ok: lineas.some(l=>l.ok) });
+      pintar();
+      return;
+    }
+    const url = urls[i++];
+    notasConexion_(url, ci, currentUser.hijoPin || currentUser.pin || '', (okk, data, via, detalle) => {
+      lineas.push({ nombre: notasApiNombre_(url), ok: okk,
+        estado: okk ? ('✅ contestó por ' + via + ' · ' + ((data && data.materias) ? data.materias.length : 0) + ' materias')
+                    : ('❌ ' + (detalle || 'no contestó')) });
+      pintar();
+      paso();
+    });
+  };
+  paso();
+}
+
 function tablaComparativa(){
   const entregas=loadStore('entregasInteractivas',[]).filter(e=>e.alumnoId===getAlumnoId());
   const promPWA = entregas.length ? (entregas.reduce((a,e)=>a+(e.puntaje||0),0)/entregas.length).toFixed(2) : null;
@@ -9935,6 +9992,52 @@ function notasApiUrls_(grado){
   try { add(localStorage.getItem('notasApiUrl')); } catch (e) { }
   return out;
 }
+/**
+ * 🌐 Pide las notas DIRECTAMENTE a Google Sheets, con el transporte que funcione.
+ *   1) fetch (sin cookies: Google no redirige al login)
+ *   2) <script> (JSONP)
+ * Devuelve {ok, data, via, estado, http}.
+ */
+function notasConexion_(url, ci, pin, cb){
+  cb = cb || function(){};
+  const qs = 't=' + encodeURIComponent(API_TOKEN) + '&_r=' + Date.now() +
+    '&ci=' + encodeURIComponent(ci) + '&pin=' + encodeURIComponent(pin);
+  const base = url + (url.indexOf('?') >= 0 ? '&' : '?') + qs;
+  const puedeFetch = (typeof fetch === 'function');
+
+  const intentaScript = (previo) => {
+    jsonpCall(url, { ci: ci, pin: pin }, function(err, data){
+      if(err) return cb(false, null, previo, 'y el camino <script> tampoco (' + (err.kind === 'timeout' ? 'tardó demasiado' : 'bloqueado') + ')');
+      cb(true, data, 'script', '');
+    }, {timeout:14000});
+  };
+
+  if(!puedeFetch) return intentaScript('');
+  let http = 0, abortado = false;
+  let corte = null;
+  try { corte = (typeof AbortController === 'function') ? new AbortController() : null; } catch(e){}
+  const reloj = setTimeout(() => { abortado = true; try{ if(corte) corte.abort(); }catch(e){} }, 14000);
+
+  // 1) fetch sin credenciales: si Google redirige, se sigue la redirección sin cookies
+  fetch(base, { method:'GET', mode:'cors', cache:'no-store', credentials:'omit', redirect:'follow',
+                signal: corte ? corte.signal : undefined })
+    .then(r => { http = r.status; return r.text(); })
+    .then(txt => {
+      clearTimeout(reloj);
+      let data = null;
+      try { data = JSON.parse(txt); } catch(e1){
+        const m = String(txt||'').match(/^[^(]*\(([\s\S]*)\)\s*;?\s*$/);
+        if(m){ try { data = JSON.parse(m[1]); } catch(e2){ data = null; } }
+      }
+      if(!data) return intentaScript('el servidor contestó algo que no se pudo leer (HTTP ' + (http||'?') + ')');
+      cb(true, data, 'fetch', '');
+    })
+    .catch(e => {
+      clearTimeout(reloj);
+      intentaScript(abortado ? 'la conexión tardó demasiado' : ('el pedido directo fue bloqueado' + (http ? ' (HTTP ' + http + ')' : '')));
+    });
+}
+
 /** Nombre corto del enlace, para mostrar de dónde estira (sin exponerlo). */
 function notasApiNombre_(u){
   const t = String(u || '');
@@ -9965,9 +10068,9 @@ function notasBajar_(cb){
     }
     const url = urls[i++];
     const nombre = notasApiNombre_(url);
-    jsonpCall(url, {ci:ci, pin:pin}, function(err,data){
-      if(err){
-        probados.push({ nombre: nombre, estado: err.kind==='timeout' ? 'tardó demasiado' : 'no respondió' });
+    notasConexion_(url, ci, pin, function(okk, data, via, detalle){
+      if(!okk){
+        probados.push({ nombre: nombre, estado: detalle || 'no respondió' });
         return siguiente();
       }
       if(!data || !data.ok){
@@ -9978,7 +10081,8 @@ function notasBajar_(cb){
         probados.push({ nombre: nombre, estado: 'contestó pero sin materias' });
         return siguiente();
       }
-      probados.push({ nombre: nombre, estado: 'ok' });
+      probados.push({ nombre: nombre, estado: 'ok (' + via + ')' });
+      window.__notasVia = via;
       if(!data.actualizado) data.actualizado = new Date().toISOString();
       data.__enlace = nombre;
       saveStore('notasLive_'+getAlumnoId(), data);
@@ -9991,7 +10095,7 @@ function notasBajar_(cb){
         }
       }catch(e){}
       cb(true, data);
-    }, {timeout:14000});
+    });
   };
   siguiente();
 }
@@ -10893,5 +10997,5 @@ let deferredPrompt=null; window.addEventListener('beforeinstallprompt',e=>{e.pre
 function promptInstall(){ if(deferredPrompt) deferredPrompt.prompt(); else toast('📲 Menú ⋮ → Agregar a pantalla principal'); }
 </script>
 <div id="printArea"></div>
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a57913160fc7240e',t:'MTc5NDE4ODA2MQ=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a57913160fc7240e',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a5794fac2b2af1c1',t:'MTc5NDE5MDU0Mg=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a5794fac2b2af1c1',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
