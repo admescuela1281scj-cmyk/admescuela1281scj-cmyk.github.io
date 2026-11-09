@@ -284,7 +284,7 @@ body{padding-bottom:env(safe-area-inset-bottom)}
 
     <div class="pt-foot">
       <b>Portal Educativo 1.281</b> · uso oficial de la escuela<br>
-      Funciona sin internet en el celular · <span class="pt-ver" id="selloVersion">PWA v3.78</span>
+      Funciona sin internet en el celular · <span class="pt-ver" id="selloVersion">PWA v3.79</span>
     </div>
   </div>
 </div>
@@ -444,7 +444,7 @@ function loadStore(k, fb){ try{ return JSON.parse(localStorage.getItem(k)) ?? fb
 // FORZAR ACTUALIZACIÓN A v2.1 - Tareas interactivas
 const APP_VERSION='2.2-corregida';
 /** 🏷️ sello que se muestra en el menú (dirección + versión de la PWA). Se cambia solo acá. */
-const APP_VERSION_UI='v3.78';
+const APP_VERSION_UI='v3.79';
 if(localStorage.getItem('app_version') !== APP_VERSION){
   localStorage.setItem('actividades', JSON.stringify(actividadesSeed));
   localStorage.setItem('entregasInteractivas', JSON.stringify([]));
@@ -1134,6 +1134,8 @@ function startApp(){
   // 📢 docente: avisos de Dirección + notificaciones en el celular
   try{ if(currentUser && (currentUser.role==='docente'||currentUser.role==='director')){ pushIniciar(); } }catch(e){}
   try{ if(currentUser && currentUser.role==='docente'){ comAutoSync(); } }catch(e){}
+  // 👕 el padre y el alumno traen su uniforme de la planilla (para verlo en el inicio)
+  try{ if(currentUser && (currentUser.role==='padre'||currentUser.role==='estudiante')){ uniSincronizar_(true); } }catch(e){}
   window.scrollTo(0,0);
 }
 
@@ -2650,7 +2652,7 @@ function navigate(v){
   if(v==='recursos'){ c.innerHTML=renderRecursos(); try{ recAutoBajar(); }catch(e){} }
   if(v==='diagnostico') c.innerHTML=renderDiagnostico();
   if(v==='calificaciones') c.innerHTML=renderCalificaciones();
-  if(v==='uniforme') c.innerHTML=renderUniforme();
+  if(v==='uniforme'){ c.innerHTML=renderUniforme(); try{ uniSincronizar_(); }catch(e){} }
   if(v==='informes') c.innerHTML=renderInformes();
   if(v==='mensajes'){
     c.innerHTML=renderMensajes();
@@ -10079,6 +10081,77 @@ function uniHoy() {
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 }
 function uniDe(id) { const u = uniStore()[String(id)]; return (u && u.estado) ? u : null; }
+
+/** dd/MM/yyyy (planilla) → yyyy-MM-dd (esto es lo que usa la app) */
+function uniISO_(f) {
+  const t = String(f || '').trim();
+  let m = t.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+  if (m) return m[3] + '-' + m[2] + '-' + m[1];
+  m = t.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return m[1] + '-' + m[2] + '-' + m[3];
+  return t.slice(0, 10);
+}
+
+/** ☁️ Sube a la planilla el estado de los alumnos indicados (hoja UNIFORME). */
+function uniSubir_(ids, cb) {
+  cb = cb || function () { };
+  const url = (typeof comUrl === 'function' ? comUrl() : '');
+  if (!url) { cb(false, null); return; }
+  const u = uniStore();
+  const todos = (typeof alumnosStore === 'function' ? alumnosStore() : []);
+  const regs = (ids || []).map(id => {
+    const e = u[String(id)];
+    if (!e || !e.estado) return null;
+    const a = todos.find(x => String(x.id) === String(id)) || {};
+    return {
+      cedula: String(a.cedula || id), nombre: String(a.nombre || ''),
+      grado: String(a.grado || ''), turno: String(a.turno || ''), seccion: String(a.seccion || ''),
+      estado: String(e.estado), fecha: String(e.fecha || uniHoy()), por: String(e.por || '')
+    };
+  }).filter(Boolean);
+  if (!regs.length) { cb(false, null); return; }
+  jsonpCall(url, { unisave: '1', d: b64Json_(regs) }, (res) => {
+    cb(!!(res && res.ok), res || null);
+  }, { timeout: 20000 });
+}
+
+/** ☁️ Trae de la planilla el control. Para el padre/alumno, solo su cédula. */
+function uniBajar_(cb) {
+  cb = cb || function () { return false; };
+  const url = (typeof comUrl === 'function' ? comUrl() : '');
+  if (!url) { cb(false, 0); return; }
+  const rol = (currentUser && currentUser.role) || '';
+  const esFamilia = (rol === 'padre' || rol === 'estudiante');
+  const miId = String((rol === 'padre' ? (currentUser.hijoId || currentUser.ci) : (currentUser.codigo || currentUser.ci)) || '');
+  const params = { uniget: '1' };
+  if (esFamilia && miId) params.cedula = miId;
+  jsonpCall(url, params, (res) => {
+    if (!res || !res.ok || !res.filas) return cb(false, 0);
+    const u = uniStore();
+    let cambios = 0;
+    res.filas.forEach(f => {
+      const ced = String(f[0] || '').replace(/\D/g, '');
+      const est = String(f[5] || '').toLowerCase().trim();
+      if (!ced || !uniEstado(est)) return;
+      const fechaISO = uniISO_(f[6]);
+      const previo = u[ced];
+      // si lo de este celular es más nuevo, no se pisa
+      if (previo && previo.fecha && uniISO_(previo.fecha) > fechaISO) return;
+      if (!previo || previo.estado !== est || uniISO_(previo.fecha) !== fechaISO) cambios++;
+      u[ced] = { estado: est, fecha: fechaISO, por: String(f[7] || ''), nube: true };
+    });
+    if (cambios) saveStore('uni_estado', u);
+    cb(true, cambios);
+  }, { timeout: 20000 });
+}
+
+/** Sincroniza como mucho una vez por minuto (o si se fuerza). */
+function uniSincronizar_(forzar) {
+  const ahora = Date.now();
+  if (!forzar && (ahora - (window.__uniSync || 0)) < 60000) return;
+  window.__uniSync = ahora;
+  try { uniBajar_((okk, cambios) => { if (cambios && currentView === 'uniforme') uniRepintar(); }); } catch (e) { }
+}
 function uniEstado(k) { return UNI_ESTADOS.find(x => x.k === k) || null; }
 
 /** Marca el estado de UN alumno. Solo acepta los 3 estados. */
@@ -10090,6 +10163,11 @@ function uniSet(id, estado) {
   const e = uniEstado(estado);
   toast(e.ic + ' ' + e.t);
   if (currentView === 'uniforme') uniRepintar();
+  // ☁️ viaja a la planilla para que el padre y el alumno también lo vean
+  uniSubir_([String(id)], (okk) => {
+    if (okk) toast('☁️ Guardado en la planilla · el padre ya lo puede ver');
+    else toast('⚠️ Quedó en este celular pero NO se pudo subir a la planilla');
+  });
 }
 /** Marca a TODO el curso con el mismo estado (con confirmación). */
 function uniSetTodos(estado) {
@@ -10103,14 +10181,27 @@ function uniSetTodos(estado) {
   saveStore('uni_estado', u);
   toast(e.ic + ' ' + e.t + ' a todo el curso (' + alumnos.length + ')');
   uniRepintar();
+  uniSubir_(alumnos.map(a => String(a.id)), (okk, res) => {
+    if (okk) toast('☁️ ' + ((res && res.total) || alumnos.length) + ' fichas guardadas en la planilla');
+    else toast('⚠️ Quedó en este celular pero NO se pudo subir a la planilla');
+  });
 }
 /** Borra el control del curso (para volver a empezar). */
 function uniBorrarTodo() {
-  if (!confirm('¿Borrar el control de uniforme de todo el curso?')) return;
+  const alumnos = (typeof alumnosCurso === 'function' ? alumnosCurso() : []);
+  const ids = alumnos.map(a => String(a.id));
+  if (!confirm('¿Borrar el control de uniforme del curso? Se borra también de la planilla.')) return;
   saveStore('uni_estado', {});
   window.__uniFiltro = 'todos';
   toast('🧹 Control de uniforme borrado');
   uniRepintar();
+  const url = (typeof comUrl === 'function' ? comUrl() : '');
+  if (url) {
+    jsonpCall(url, { unidel: '1', d: ids.join(',') }, (res) => {
+      if (res && res.ok) toast('🧹 También se borró de la planilla (' + (res.borrados || 0) + ')');
+      else toast('⚠️ Se borró acá; la planilla no confirmó');
+    }, { timeout: 20000 });
+  }
 }
 function uniFiltrar(k) { window.__uniFiltro = k; uniRepintar(); }
 function uniRepintar() {
@@ -10156,7 +10247,10 @@ function renderUniforme() {
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">
         <div><div class="card-title">👕 Uniforme — ${cursoTxt}</div>
           <div class="card-sub">Elegí una de las tres opciones para cada alumno. Control del día <b>${uniHoy()}</b>.</div></div>
-        <span class="pill" style="background:#EFF6FF;color:#1E3A8A;border:1px solid #BFDBFE">📱 Solo en la app</span>
+        <div style="text-align:right">
+          <span class="pill" style="background:#EFF6FF;color:#1E3A8A;border:1px solid #BFDBFE">☁️ Se guarda en la planilla</span>
+          <div style="font-size:10.5px;color:#64748B;margin-top:3px">El padre y el alumno lo ven en su app (solo lectura)</div>
+        </div>
       </div>
 
       <div style="display:flex;gap:7px;flex-wrap:wrap;margin:12px 0">
@@ -10192,7 +10286,8 @@ function renderUniforme() {
     }).join('') : `<div style="padding:14px;text-align:center;color:var(--muted);font-size:12.5px">No hay alumnos en este filtro.</div>`}
 
       <div style="margin-top:12px;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:10px;padding:10px 12px;font-size:11.5px;color:#1E3A8A">
-        📱 <b>Se guarda solo en esta app</b> (en este celular). No se envía a la planilla y no cuenta como calificación.
+        ☁️ <b>Se guarda en la planilla</b> (hoja UNIFORME) para que el padre y el alumno lo vean en su app, en <b>solo lectura</b>.
+        No cuenta como calificación.
       </div>
     </div>`;
   }
@@ -10211,12 +10306,16 @@ function renderUniforme() {
         <div style="font-size:34px">${st.ic}</div>
         <b style="font-size:19px;color:${st.fg}">${st.t}</b>
         ${mio && mio.fecha ? `<div style="font-size:11.5px;color:#475569;margin-top:4px">Registrado el ${mio.fecha}</div>` : ''}
+        ${mio && mio.por ? `<div style="font-size:11px;color:#64748B;margin-top:2px">Por ${mio.por}</div>` : ''}
+        <div style="margin-top:8px"><span class="pill" style="background:white;color:${st.fg};border:1px solid ${st.br}">👁️ Solo lectura</span>
+          ${mio && mio.nube ? '<span class="pill" style="background:white;color:#1E3A8A;border:1px solid #BFDBFE;margin-left:5px">☁️ De la planilla</span>' : ''}</div>
       </div>`
       : `<div style="margin-top:14px;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:14px;padding:16px;text-align:center">
         <div style="font-size:30px">👕</div>
         <b style="font-size:14px;color:#334155">Todavía sin registrar en este celular</b>
-        <div style="font-size:12px;color:#64748B;margin-top:5px">El control lo hace la maestra desde su celular.
-          Si tenés una duda sobre el uniforme, escribile.</div>
+        <div style="font-size:12px;color:#64748B;margin-top:5px">La maestra todavía no registró el uniforme de ${(nombre || '').split(' ')[0]}.
+          Cuando lo haga, lo vas a ver acá.</div>
+        <button class="btn btn-ghost" style="font-size:11.5px;padding:6px 10px;margin-top:9px" onclick="uniSincronizar_(true);toast('🔄 Buscando en la planilla…')">🔄 Volver a buscar</button>
       </div>`}
     <div style="margin-top:12px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:10px 12px;font-size:11.5px;color:#92400E">
       ℹ️ El uniforme es <b>gratuito</b> y lo entrega la escuela. Este control es solo informativo: <b>no es una calificación</b>.
@@ -10443,5 +10542,5 @@ let deferredPrompt=null; window.addEventListener('beforeinstallprompt',e=>{e.pre
 function promptInstall(){ if(deferredPrompt) deferredPrompt.prompt(); else toast('📲 Menú ⋮ → Agregar a pantalla principal'); }
 </script>
 <div id="printArea"></div>
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a57873124b860174',t:'MTc5NDE4MTUwNg=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a57873124b860174',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a57890f61cfb2d4c',t:'MTc5NDE4MjczMQ=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a57890f61cfb2d4c',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
