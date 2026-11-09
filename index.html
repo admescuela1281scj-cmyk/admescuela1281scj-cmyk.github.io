@@ -284,7 +284,7 @@ body{padding-bottom:env(safe-area-inset-bottom)}
 
     <div class="pt-foot">
       <b>Portal Educativo 1.281</b> · uso oficial de la escuela<br>
-      Funciona sin internet en el celular · <span class="pt-ver" id="selloVersion">PWA v3.81</span>
+      Funciona sin internet en el celular · <span class="pt-ver" id="selloVersion">PWA v3.82</span>
     </div>
   </div>
 </div>
@@ -444,7 +444,7 @@ function loadStore(k, fb){ try{ return JSON.parse(localStorage.getItem(k)) ?? fb
 // FORZAR ACTUALIZACIÓN A v2.1 - Tareas interactivas
 const APP_VERSION='2.2-corregida';
 /** 🏷️ sello que se muestra en el menú (dirección + versión de la PWA). Se cambia solo acá. */
-const APP_VERSION_UI='v3.81';
+const APP_VERSION_UI='v3.82';
 if(localStorage.getItem('app_version') !== APP_VERSION){
   localStorage.setItem('actividades', JSON.stringify(actividadesSeed));
   localStorage.setItem('entregasInteractivas', JSON.stringify([]));
@@ -9940,14 +9940,39 @@ function tablaComparativa(){
     <div style="padding:8px 12px;background:#FFFBEB;font-size:11px;color:#92400E">📌 El puntaje de la PWA sirve para que usted vea cómo viene trabajando su hijo/a, pero <b>la nota que cuenta es la de la planilla</b> (arriba).</div>
   </div>`;
 }
+/** ⬇️ Trae las notas de la planilla SIN cambiar de pantalla (lo usa el boletín). */
+function notasBajar_(cb){
+  cb = cb || function(){};
+  const url = getNotasApiUrl(currentUser.hijoGrado || currentUser.grado);
+  if(!url) return cb(false, 'La planilla de este grado no está vinculada.');
+  const soloDig = t => String(t||'').replace(/[^0-9]/g,'');
+  const ci = soloDig((currentUser.role==='padre' || currentUser.role==='estudiante') ? (currentUser.ci||'') : (currentUser.ci||currentUser.codigo||''));
+  const pin = currentUser.hijoPin || currentUser.pin || '';
+  jsonpCall(url, {ci:ci, pin:pin}, function(err,data){
+    if(err) return cb(false, err.kind==='timeout'
+      ? 'La planilla tardó demasiado. Probá de nuevo.'
+      : 'No se pudo conectar con la planilla desde este celular.');
+    if(!data || !data.ok) return cb(false, (data&&data.error) || 'La planilla no devolvió las notas.');
+    if(!data.actualizado) data.actualizado = new Date().toISOString();
+    saveStore('notasLive_'+getAlumnoId(), data);
+    cb(true, data);
+  }, {timeout:25000});
+}
 function abrirBoletinOficial(){
   // ✅ Abre el boletín DENTRO de la PWA (no expone el enlace de la planilla)
   const key='notasLive_'+getAlumnoId();
   const live=loadStore(key,null);
-  if(!live || !live.ok) return verBoletinImprimible(null);
-  verBoletinImprimible(live);
+  const sirve = live && live.ok && Array.isArray(live.materias) && live.materias.length;
+  if(sirve) return verBoletinImprimible(live);
+  // 📚 v3.82: si no hay materias guardadas, se piden a la planilla ANTES de dibujar
+  toast('🔄 Trayendo las calificaciones de la planilla…');
+  notasBajar_((okk, data) => {
+    if(okk && data && Array.isArray(data.materias) && data.materias.length) return verBoletinImprimible(data);
+    verBoletinImprimible(null, okk ? 'La planilla no trae materias para este alumno todavía.' : String(data || ''));
+  });
 }
-function verBoletinImprimible(live){
+function verBoletinImprimible(live, motivo){
+  motivo = motivo || '';
   const esc=(live&&live.escala)||5;
   const nomAl=(live&&live.alumno&&live.alumno.nombre)|| (currentUser.role==='padre'? currentUser.hijo : currentUser.name);
   const curAl=(live&&live.alumno&&live.alumno.curso)|| currentUser.hijoCursoNombre||currentUser.grado||'';
@@ -9972,7 +9997,9 @@ function verBoletinImprimible(live){
     </div>`;
   const cuerpoTabla = conComp
     ? `<tr><th>Área o Materia</th><th>Calif.</th><th>CAP 70%</th><th>PROY 30%</th><th>CAP P.T</th><th>PROY P.T</th><th>Total</th></tr>${filas}`
-    : `<tr><th>Área o Materia</th><th>Trimestre</th><th colspan="4">Puntos</th><th>Total</th></tr>${mats.map(m=>`<tr><td class="matcol">${m.materia}</td><td>${m.trimestre||'—'}</td><td colspan="4">${m.puntos!==undefined?m.puntos+' / '+(m.maximo||'—'):'—'}</td><td class="tot">${ico(m.nota)}</td></tr>`).join('')}`;
+    : `<tr><th>Área o Materia</th><th>Trimestre</th><th colspan="4">Puntos</th><th>Total</th></tr>${mats.length
+        ? mats.map(m=>`<tr><td class="matcol">${m.materia}</td><td>${m.trimestre||'—'}</td><td colspan="4">${m.puntos!==undefined?m.puntos+' / '+(m.maximo||'—'):'—'}</td><td class="tot">${ico(m.nota)}</td></tr>`).join('')
+        : `<tr><td colspan="7" style="padding:16px;color:#64748B">Sin datos cargados todavía.</td></tr>`}`;
 
   openModal(`<div id="boletinModal">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap" class="no-print">
@@ -9989,7 +10016,12 @@ function verBoletinImprimible(live){
         <div style="font-size:16px;font-weight:800;color:#1a237e">${nomAl}</div>
         <div style="font-size:11px;color:#64748B">${curAl} ${ciAl? '• CI '+ciAl : ''} • Escala 1 a ${esc}</div>
       </div>
-      <div style="padding:12px;background:#fff"><div class="table-wrap"><table style="width:100%;border-collapse:collapse;font-size:12px">
+      <div style="padding:12px;background:#fff">
+      ${(!mats.length) ? `<div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:9px;padding:9px 11px;margin-bottom:9px;font-size:11.5px;color:#92400E">
+        ⚠️ ${motivo || 'Este celular todavía no tenía las calificaciones guardadas.'}
+        <div style="margin-top:6px"><button class="btn btn-primary" style="font-size:11.5px;padding:6px 10px" onclick="closeModal();abrirBoletinOficial()">🔄 Traer de la planilla</button></div>
+      </div>` : ''}
+      <div class="table-wrap"><table style="width:100%;border-collapse:collapse;font-size:12px">
         <style>#boletinModal td,#boletinModal th{border:1px solid #94A3B8;padding:6px;text-align:center}#boletinModal th{background:#212121;color:#fff;font-size:10px;text-transform:uppercase}#boletinModal .matcol{text-align:left;background:#EEEEEE;font-weight:700}#boletinModal .calif{background:#FFF9C4;font-weight:700}#boletinModal .tot{background:#FFD600;font-weight:800}</style>
         ${cuerpoTabla}
       </table></div>
@@ -10823,5 +10855,5 @@ let deferredPrompt=null; window.addEventListener('beforeinstallprompt',e=>{e.pre
 function promptInstall(){ if(deferredPrompt) deferredPrompt.prompt(); else toast('📲 Menú ⋮ → Agregar a pantalla principal'); }
 </script>
 <div id="printArea"></div>
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a578ca7bcf469d69',t:'MTc5NDE4NTA4Nw=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a578ca7bcf469d69',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a578f9190a0e8bfa',t:'MTc5NDE4Njk5Ng=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a578f9190a0e8bfa',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
