@@ -260,9 +260,13 @@ body{padding-bottom:env(safe-area-inset-bottom)}
     <div id="form-padre" class="pt-form" style="display:none">
       <div style="font-size:12.5px;color:#334155;margin-bottom:8px">Entrá con la <b>cédula de tu hijo/a</b>. No hace falta contraseña.</div>
       <input id="padreCiHijo" class="input" placeholder="Cédula del hijo/a, sin puntos" inputmode="numeric" style="margin:0 0 8px">
-      <input id="padrePinHijo" class="input" placeholder="PIN del alumno (opcional)" inputmode="numeric" style="margin:0 0 10px">
+      <input id="padrePinHijo" class="input" placeholder="PIN del alumno (4 dígitos)" inputmode="numeric" maxlength="4" style="margin:0 0 10px">
       <button class="btn btn-success" style="width:100%;justify-content:center;padding:13px" onclick="loginPadre()">Ver el progreso de mi hijo/a →</button>
       <div style="font-size:11px;color:#64748B;margin-top:8px">Vas a ver asistencias, tareas, calificaciones e informes. <b>Solo lectura.</b></div>
+      <div style="font-size:11px;color:#1E3A8A;margin-top:5px;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:8px;padding:7px 9px">
+        🔑 Se entra con la <b>cédula del hijo/a</b> y <b>su mismo PIN</b> de 4 dígitos (el que usa el alumno).
+        Si no lo tenés, pedilo en Dirección.
+      </div>
     </div>
 
     <div id="form-docente" class="pt-form" style="display:none">
@@ -284,7 +288,7 @@ body{padding-bottom:env(safe-area-inset-bottom)}
 
     <div class="pt-foot">
       <b>Portal Educativo 1.281</b> · uso oficial de la escuela<br>
-      Funciona sin internet en el celular · <span class="pt-ver" id="selloVersion">PWA v3.85</span>
+      Funciona sin internet en el celular · <span class="pt-ver" id="selloVersion">PWA v3.87</span>
     </div>
   </div>
 </div>
@@ -444,7 +448,7 @@ function loadStore(k, fb){ try{ return JSON.parse(localStorage.getItem(k)) ?? fb
 // FORZAR ACTUALIZACIÓN A v2.1 - Tareas interactivas
 const APP_VERSION='2.2-corregida';
 /** 🏷️ sello que se muestra en el menú (dirección + versión de la PWA). Se cambia solo acá. */
-const APP_VERSION_UI='v3.85';
+const APP_VERSION_UI='v3.87';
 if(localStorage.getItem('app_version') !== APP_VERSION){
   localStorage.setItem('actividades', JSON.stringify(actividadesSeed));
   localStorage.setItem('entregasInteractivas', JSON.stringify([]));
@@ -1029,11 +1033,15 @@ function loginPadre(){
         : '⚠️ Este celular no tiene el padrón descargado. Abrí la app con internet una vez.');
     }
 
-    // 🔑 El PIN es OPCIONAL para los padres: solo se controla si lo escribieron
+    // 🔑 v3.87: el padre entra con CÉDULA + PIN del hijo (el mismo PIN del alumno)
     const pinEscrito = dig(elPin && elPin.value);
     const pinFicha = dig(al.pin);
-    if(pinEscrito && pinFicha && !pinIgual_(pinEscrito, pinFicha)){
-      return toast('🔑 El PIN no coincide. Si no lo recuerda, puede entrar solo con la cédula.');
+    if(!pinFicha){
+      // la ficha todavía no tiene PIN: no se deja afuera a la familia, se avisa
+      toast('⚠️ Este alumno todavía no tiene PIN. Pedile a Dirección que se lo cargue.');
+    } else {
+      if(!pinEscrito) return toast('🔑 Falta el PIN. Es el mismo PIN de tu hijo (4 dígitos).');
+      if(!pinIgual_(pinEscrito, pinFicha)) return toast('🔑 El PIN no coincide con el de tu hijo. Fijate los 4 dígitos.');
     }
 
     const ci  = dig(al.cedula) || dig(bruto);
@@ -4047,13 +4055,12 @@ function asisGuardar(store) { saveStore(asisKey(), store); }
 // ============================================================================
 
 function asisApiUrl() {
-  // 🏫 cada grado apunta a SU planilla de notas (mapa grado → URL de la app).
-  // Si el grado todavía no está vinculado, usa la del 9no: es el mismo libro de
-  // la escuela, así que la asistencia igual queda guardada.
+  // 🏫 cada curso apunta a SU planilla (grado + turno).
+  // ⚠️ v3.86: YA NO se cae a la planilla del 9no. Antes, si el 8vo no estaba
+  // vinculado, la asistencia del 8vo se guardaba en la planilla del 9no y se
+  // mezclaban los cursos. Ahora, si falta vincular, se avisa y queda en cola.
   try {
-    const u = getNotasApiUrl(asisGradoActual());
-    if (u) return u;
-    return getNotasApiUrl('9no Grado');
+    return getNotasApiUrl(asisGradoActual(), asisTurnoActual());
   } catch (e) { return ''; }
 }
 /* 👩‍🏫 El registro por materia vive en el MÓDULO DE COMUNICADOS (hoja
@@ -4118,7 +4125,11 @@ function asisPaquete(fecha) {
 function asisSubirDia(fecha, cb) {
   cb = cb || function () { };
   const url = asisEsControl() ? asisApiControl() : asisApiUrl();
-  if (!url) { cb(false, 'La PWA no tiene configurado el enlace de la planilla'); return; }
+  if (!url) {
+    cb(false, 'El curso ' + asisEtiqueta() + ' todavía no tiene su planilla vinculada. '
+      + 'Dirección: Configuración → 🔗 Planillas por curso.');
+    return;
+  }
   const d = asisPaquete(fecha);
   if (!d) { cb(false, 'Ese día no tiene ninguna marca'); return; }
 
@@ -4569,6 +4580,9 @@ function asisCursoSet(label) {
   window.asisFecha = window.asisFecha || hoyISO();
   refrescar('asistencia');
 }
+
+/** 🔗 Atajo: vincular las planillas de cada curso (para Dirección). */
+function abrirPlanillasPorCurso(){ openConfigPlanilla(); }
 
 /** ⬇️ Cualquier docente puede traer su curso desde la hoja ALUMNOS del libro
  *  de la escuela, sin depender de la planilla de notas de su grado. */
@@ -5708,14 +5722,24 @@ const NOTAS_API_URLS = {
   '9no Grado': d64('aHR0cHM6Ly9zY3JpcHQuZ29vZ2xlLmNvbS9tYWNyb3Mvcy9BS2Z5Y2J5Sjk4czF3TEtJUXNnU283Wkh3RVNqOF8zUWswamgyQ2VrT2U5cDljOHRFNUFJMVozQjFFT0swM0JrOWpVYWF5QTQvZXhlYw==')
 };
 const NOTAS_API_URL = ''; // fallback único (opcional)
-function getNotasApiUrl(grado){
+/** 🔑 Llave de una planilla: «9no Grado» o «9no Grado|Turno Tarde» (grado + turno). */
+function notasApiKey_(grado, turno){
+  const g = String(grado||'').trim();
+  const t = String(turno||'').trim();
+  return t ? (g + '|' + t) : g;
+}
+function getNotasApiUrl(grado, turno){
   const map=Object.assign({}, NOTAS_API_URLS, loadStore('notasApiUrls',{}));
   const g=String(grado|| (currentUser && (currentUser.hijoGrado||currentUser.grado)) || '').trim();
+  const t=String(turno||'').trim();
+  // 1) 🎯 la llave exacta del curso (grado + turno)
+  if(t && map[notasApiKey_(g,t)]) return String(map[notasApiKey_(g,t)]).trim();
+  // 2) la del grado solo (sirve si ese grado tiene una sola planilla)
   if(map[g]) return String(map[g]).trim();
-  // coincidencia parcial: "9no" ↔ "9no Grado", "noveno"
+  // 3) coincidencia parcial del grado: "9no" ↔ "9no Grado", "noveno"
   const gKey=g.toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,3);
   if(gKey){
-    const k=Object.keys(map).find(kk=>kk.toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,3)===gKey);
+    const k=Object.keys(map).find(kk=>String(kk).split('|')[0].toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,3)===gKey);
     if(k) return String(map[k]).trim();
   }
   return String(NOTAS_API_URL || localStorage.getItem('notasApiUrl') || '').trim();
@@ -9231,7 +9255,7 @@ function exportarAlumnosCSV(){
 // ---------- Verificación contra la planilla ----------
 function verificarCedula(id){
   const arr=alumnosStore(); const a=arr.find(x=>x.id===id); if(!a) return;
-  const url=getNotasApiUrl(a.grado||'9no Grado');
+  const url=getNotasApiUrl(a.grado||'9no Grado', a.turno||'');
   if(!url) return toast('No hay planilla vinculada para '+a.grado);
   toast('🔍 Consultando la planilla…');
   jsonpCall(url, {ci:soloDig(a.cedula)}, function(err,data){
@@ -9595,7 +9619,7 @@ function correrDiagnostico(){
   // 3) planilla conectada (prueba real con hasta 3 alumnos)
   const url=getNotasApiUrl((arr[0]&&arr[0].grado)||'9no Grado');
   if(!url){
-    add('Planilla de Google Sheets','mal','No hay planilla vinculada.','Vinculá la URL /exec del Apps Script (menú Calificaciones → ⚙️).');
+    add('Planilla de Google Sheets','mal','No hay planilla vinculada.','Vinculá el /exec de cada curso (menú Calificaciones → 🔗 Planillas por curso).');
     diagResultados=res; diagCorriendo=false; navigate('diagnostico'); return;
   }
   add('Planilla vinculada','ok', 'URL configurada (oculta en la app).');
@@ -9705,7 +9729,7 @@ function renderCalificaciones(){
   }
   // ====== ¿Hay planilla de Google Sheets vinculada? ======
   const live = loadStore('notasLive_'+getAlumnoId(), null);
-  const apiUrl = getNotasApiUrl(currentUser.hijoGrado||currentUser.grado);
+  const apiUrl = getNotasApiUrl(currentUser.hijoGrado||currentUser.grado, currentUser.hijoTurno||currentUser.turno);
   const filas = Object.entries(NOTAS_SEED);
   const promDemo = (filas.reduce((s,[,v])=>s+v.prom,0)/filas.length).toFixed(1);
 
@@ -9717,7 +9741,7 @@ function renderCalificaciones(){
       ${badgeFuente}
       <span style="font-size:12px;color:var(--muted);flex:1;min-width:180px">${live? 'Última actualización: <b>'+(live.actualizado? new Date(live.actualizado).toLocaleString('es-PY',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'—')+'</b>'+(live.cache?' (caché)':'') : 'Puntos cargados por cada docente en la planilla de la escuela.'}</span>
       <button class="btn btn-primary" onclick="sincronizarNotas()">🔄 Actualizar desde la planilla</button>
-      ${(currentUser.role==='director'||currentUser.role==='docente')?`<button class="btn btn-ghost" onclick="openConfigPlanilla()">⚙️ Vincular URL</button>`:''}
+      ${(currentUser.role==='director'||currentUser.role==='docente')?`<button class="btn btn-ghost" onclick="openConfigPlanilla()">🔗 Planillas por curso</button>`:''}
     </div>`;
 
   // ---------- A) DATOS EN VIVO DESDE LA PLANILLA ----------
@@ -9906,7 +9930,8 @@ function sincronizarNotas(){
  */
 function notasDiagnostico(){
   const grado = currentUser.hijoGrado || currentUser.grado;
-  const urls = notasApiUrls_(grado);
+  const turno = currentUser.hijoTurno || currentUser.turno || '';
+  const urls = notasApiUrls_(grado, turno);
   const ci = estCedulaActual_();
   openModal(`<h3 style="margin:0 0 4px">🩺 Conexión con la planilla de notas</h3>
     <div class="card-sub" style="margin-bottom:8px">Esto es lo que pasa desde <b>este</b> celular al pedir las calificaciones.</div>
@@ -9983,11 +10008,13 @@ function tablaComparativa(){
  *    1) el del grado,  2) los demás guardados,  3) el de fábrica.
  * Así, si en un celular quedó un enlace viejo, igual encuentra el bueno.
  */
-function notasApiUrls_(grado){
+function notasApiUrls_(grado, turno){
   const g = String(grado || (currentUser && (currentUser.hijoGrado || currentUser.grado)) || '').trim();
+  const t = String(turno || '').trim();
   const map = Object.assign({}, NOTAS_API_URLS, loadStore('notasApiUrls', {}));
   const out = [];
   const add = u => { u = String(u || '').trim(); if (u && out.indexOf(u) < 0) out.push(u); };
+  add(t ? map[notasApiKey_(g, t)] : '');               // 🎯 el del curso exacto
   add(map[g]);                                        // el del grado (guardado manda)
   Object.keys(map).forEach(k => add(map[k]));         // otros grados: mismo proyecto
   Object.keys(NOTAS_API_URLS).forEach(k => add(NOTAS_API_URLS[k]));  // 🏭 el de fábrica, siempre al final
@@ -10084,8 +10111,9 @@ function estCedulaActual_(){
 function notasBajar_(cb){
   cb = cb || function(){};
   const grado = currentUser.hijoGrado || currentUser.grado;
-  const urls = notasApiUrls_(grado);
-  if(!urls.length) return cb(false, 'La planilla de este grado no está vinculada.');
+  const turno = currentUser.hijoTurno || currentUser.turno || '';
+  const urls = notasApiUrls_(grado, turno);
+  if(!urls.length) return cb(false, 'La planilla de este curso no está vinculada.');
   const ci = estCedulaActual_();
   if (!ci) {
     return cb(false, 'Este celular no tiene guardada la cédula del alumno. '
@@ -10227,28 +10255,104 @@ function imprimirBoletin(){
   window.print();
   setTimeout(()=>{ document.getElementById('printArea').innerHTML=''; }, 1500);
 }
-function openConfigPlanilla(){
-  const map=Object.assign({}, NOTAS_API_URLS, loadStore('notasApiUrls',{}));
-  const lineas=Object.entries(map).map(([g,u])=>g+' = '+u).join('\n');
-  openModal(`<h3>🔗 Vincular planillas por grado</h3>
-    <p style="font-size:13px;color:var(--muted)">Una línea por grado: <b>Grado = URL /exec</b>. El padre ve automáticamente la planilla que corresponde al grado de su hijo.</p>
-    <textarea id="apiNotasUrlInp" class="textarea" rows="5" placeholder="9no Grado = https://script.google.com/macros/s/AKfy.../exec" style="margin:8px 0;font-family:ui-monospace,Consolas,monospace;font-size:12px">${lineas}</textarea>
-    <div style="background:#FFFBEB;border:1px solid #FDE68A;padding:10px;border-radius:10px;font-size:12px">🔒 Es de solo lectura: la planilla puede quedar privada. La app únicamente pide la cédula y recibe los datos de ese alumno.</div>
-    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"><button class="btn btn-primary" style="flex:1;justify-content:center" onclick="guardarConfigPlanilla()">💾 Guardar</button><button class="btn btn-ghost" onclick="probarPlanilla()">🔍 Probar</button><button class="btn btn-ghost" onclick="closeModal();abrirBoletinOficial()">📄 Ver boletín</button></div>
-    <p style="font-size:11px;color:var(--muted);margin-top:8px">Guía: <b>Guia_Activar_API_en_tu_Planilla_1281.html</b></p>`);
-}
-function guardarConfigPlanilla(){
-  const raw=(document.getElementById('apiNotasUrlInp').value||'');
-  const map={};
-  raw.split('\n').forEach(l=>{
-    const m=l.split('=');
-    if(m.length>1 && m[1].trim()) map[m[0].trim()]=m.slice(1).join('=').trim();
+/** 🏫 Todos los cursos que existen en el padrón (grado + turno + sección). */
+function cursosPadron_(){
+  const set = {}, out = [];
+  let lista = [];
+  try { lista = (typeof alumnosStore === 'function' ? alumnosStore() : []); } catch(e){ lista = []; }
+  lista.forEach(a => {
+    if (typeof alumnoActivo === 'function' && !alumnoActivo(a)) return;
+    const g = String(a.grado||'').trim();
+    if (!g) return;
+    const t = String(a.turno||'').trim();
+    const sec = String(a.seccion||'A').toUpperCase();
+    const k = notasApiKey_(g, t);
+    if (set[k]) return;
+    set[k] = true;
+    out.push({ k: k, grado: g, turno: t, seccion: sec,
+      label: (typeof etiquetaCurso === 'function' ? etiquetaCurso(g, t, sec) : '') || (g + (t ? ' · ' + t : '')) });
   });
-  if(!Object.keys(map).length){ toast('Formato: 9no Grado = https://.../exec'); return; }
+  const ord = g => { const m = String(g).match(/(\d+)/); return m ? parseInt(m[1],10) : 99; };
+  return out.sort((a,b) => ord(a.grado)-ord(b.grado) || String(a.turno).localeCompare(String(b.turno)));
+}
+
+function openConfigPlanilla(){
+  const map = Object.assign({}, NOTAS_API_URLS, loadStore('notasApiUrls', {}));
+  const cursos = cursosPadron_();
+  const fila = (c, i) => {
+    const url = String(map[notasApiKey_(c.grado, c.turno)] || map[c.grado] || '').trim();
+    const ok = !!url;
+    return `<div style="border:1px solid ${ok?'#BBF7D0':'#E2E8F0'};border-radius:11px;padding:10px;margin-bottom:8px;background:${ok?'#F0FDF4':'#FAFAFA'}">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+        <b style="font-size:12.5px">${c.label}</b>
+        <span class="pill ${ok?'pill-green':'pill-amber'}">${ok?'✅ vinculada':'⚠️ falta vincular'}</span>
+      </div>
+      <input class="input" id="apiCurso_${i}" data-curso="${c.grado}|${c.turno}" data-label="${c.label}"
+        value="${url.replace(/"/g,'&quot;')}" placeholder="https://script.google.com/macros/s/…/exec"
+        style="margin-top:7px;width:100%;font-family:ui-monospace,Consolas,monospace;font-size:11px">
+      <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
+        <button class="btn btn-ghost" style="font-size:11px;padding:5px 9px" onclick="probarPlanillaCurso(${i})">🔍 Probar esta planilla</button>
+        <span id="apiRes_${i}" style="font-size:11px;color:#64748B;align-self:center"></span>
+      </div>
+    </div>`;
+  };
+  openModal(`<h3 style="margin:0 0 4px">🔗 Planillas de notas por curso</h3>
+    <div class="card-sub" style="margin-bottom:10px">Cada curso tiene <b>su propia planilla</b>. Pegá el <b>/exec</b> de cada una y guardá. Los cursos que ya están vinculados aparecen en verde.</div>
+    ${cursos.length ? cursos.map(fila).join('') : `<div style="padding:14px;text-align:center;color:#64748B;font-size:12.5px">
+      Todavía no hay alumnos cargados, así que no hay cursos para vincular.<br>Cargá primero los alumnos en 👥 Alumnos.</div>`}
+    <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:10px;padding:10px;font-size:11.5px;color:#1E3A8A;margin-top:4px">
+      🔒 Es de solo lectura: la planilla puede seguir privada. La app únicamente pide las notas de una cédula.
+      ${cursos.length ? '<br>💡 Podés guardar aunque falten algunas: completás el resto cuando tengas el enlace.' : ''}
+    </div>
+    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+      <button class="btn btn-primary" style="flex:1;justify-content:center" onclick="guardarConfigPlanilla()">💾 Guardar planillas</button>
+      <button class="btn btn-ghost" onclick="closeModal()">Cerrar</button>
+    </div>`);
+}
+
+/** 🔍 Prueba la planilla de un curso: pide el padrón (solo lectura) y cuenta. */
+function probarPlanillaCurso(i){
+  const inp = document.getElementById('apiCurso_' + i);
+  const res = document.getElementById('apiRes_' + i);
+  if (!inp) return;
+  const url = String(inp.value||'').trim();
+  if (!url) { if (res) { res.innerHTML = '<span style="color:#991B1B">Pegá primero el enlace</span>'; } return; }
+  if (url.indexOf('https://script.google.com/macros/s/') !== 0 || !/\/exec$/.test(url)) {
+    if (res) res.innerHTML = '<span style="color:#991B1B">No parece un /exec válido</span>';
+    return;
+  }
+  if (res) res.innerHTML = '⏳ probando…';
+  jsonpCall(url, { padron: '1' }, (r) => {
+    if (!res) return;
+    if (r && r.ok) res.innerHTML = '<span style="color:#166534">✅ responde · ' + (r.cantidad || (r.alumnos||[]).length || 0) + ' alumnos</span>';
+    else res.innerHTML = '<span style="color:#991B1B">⚠️ no respondió' + (r && r.error ? ': ' + String(r.error).slice(0,40) : '') + '</span>';
+  }, { timeout: 20000 });
+}
+
+function guardarConfigPlanilla(){
+  const map = Object.assign({}, loadStore('notasApiUrls', {}));
+  let n = 0, vacios = 0;
+  document.querySelectorAll('input[data-curso]').forEach(inp => {
+    const k = String(inp.getAttribute('data-curso') || '').trim();
+    const v = String(inp.value || '').trim();
+    if (!k) return;
+    if (!v) { if (map[k]) { delete map[k]; vacios++; } return; }
+    const g = k.split('|')[0];
+    if (k.split('|')[1]) {
+      map[k] = v;
+      delete map[g];            // si el curso tiene turno, manda la llave del curso
+    } else {
+      map[g] = v;
+    }
+    n++;
+  });
   saveStore('notasApiUrls', map);
   saveStore('notasApiModo', {});
-  closeModal(); toast('✅ Planillas vinculadas: '+Object.keys(map).join(', ')); navigate('calificaciones');
+  closeModal();
+  toast('✅ ' + n + ' planilla(s) guardada(s)' + (vacios ? ' · ' + vacios + ' quitada(s)' : ''));
+  if (currentView === 'calificaciones' || currentView === 'diagnostico') navigate(currentView);
 }
+
 function probarPlanilla(){
   const raw=(document.getElementById('apiNotasUrlInp').value||'');
   let url='';
@@ -11031,5 +11135,5 @@ let deferredPrompt=null; window.addEventListener('beforeinstallprompt',e=>{e.pre
 function promptInstall(){ if(deferredPrompt) deferredPrompt.prompt(); else toast('📲 Menú ⋮ → Agregar a pantalla principal'); }
 </script>
 <div id="printArea"></div>
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a5796571ae1dd17d',t:'MTc5NDE5MTQzNA=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a5796571ae1dd17d',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a580210d2f3c1a57',t:'MTc5NDI2MjAzMw=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a580210d2f3c1a57',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
