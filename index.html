@@ -284,7 +284,7 @@ body{padding-bottom:env(safe-area-inset-bottom)}
 
     <div class="pt-foot">
       <b>Portal Educativo 1.281</b> · uso oficial de la escuela<br>
-      Funciona sin internet en el celular · <span class="pt-ver" id="selloVersion">PWA v3.84</span>
+      Funciona sin internet en el celular · <span class="pt-ver" id="selloVersion">PWA v3.85</span>
     </div>
   </div>
 </div>
@@ -444,7 +444,7 @@ function loadStore(k, fb){ try{ return JSON.parse(localStorage.getItem(k)) ?? fb
 // FORZAR ACTUALIZACIÓN A v2.1 - Tareas interactivas
 const APP_VERSION='2.2-corregida';
 /** 🏷️ sello que se muestra en el menú (dirección + versión de la PWA). Se cambia solo acá. */
-const APP_VERSION_UI='v3.84';
+const APP_VERSION_UI='v3.85';
 if(localStorage.getItem('app_version') !== APP_VERSION){
   localStorage.setItem('actividades', JSON.stringify(actividadesSeed));
   localStorage.setItem('entregasInteractivas', JSON.stringify([]));
@@ -9907,14 +9907,16 @@ function sincronizarNotas(){
 function notasDiagnostico(){
   const grado = currentUser.hijoGrado || currentUser.grado;
   const urls = notasApiUrls_(grado);
-  const soloDig = t => String(t||'').replace(/[^0-9]/g,'');
-  const ci = soloDig((currentUser.role==='padre'||currentUser.role==='estudiante') ? (currentUser.ci||'') : (currentUser.ci||currentUser.codigo||''));
+  const ci = estCedulaActual_();
   openModal(`<h3 style="margin:0 0 4px">🩺 Conexión con la planilla de notas</h3>
     <div class="card-sub" style="margin-bottom:8px">Esto es lo que pasa desde <b>este</b> celular al pedir las calificaciones.</div>
     <div style="font-size:12px;margin-bottom:6px">📶 Wifi/datos: <b>${navigator.onLine===false?'❌ sin conexión':'✅ conectado'}</b></div>
     <div style="font-size:12px;margin-bottom:6px">🌍 Internet real: <b id="dxNetNotas">midiendo…</b></div>
-    <div style="font-size:12px;margin-bottom:6px">🔗 Enlaces configurados: <b>${urls.length}</b> · cédula que se pide: <b>${ci || '—'}</b></div>
-    <div id="dxNotasRes" style="font-size:12px;color:#64748B;margin-top:8px">Probando…</div>
+    <div style="font-size:12px;margin-bottom:6px">🔗 Enlaces configurados: <b>${urls.length}</b> · cédula que se pide: <b style="color:${ci?'#166534':'#991B1B'}">${ci || 'NO ENCONTRADA'}</b></div>
+    ${ci ? '' : `<div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:9px;padding:9px 11px;font-size:11.5px;color:#991B1B">
+      ⚠️ Este celular no tiene guardada la cédula del alumno, así que la planilla no sabe de quién hablar.
+      <b>Cerrá sesión y volvé a entrar escribiendo la cédula.</b></div>`}
+    <div id="dxNotasRes" style="font-size:12px;color:#64748B;margin-top:8px">${ci ? 'Probando…' : ''}</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
       <button class="btn btn-ghost" onclick="closeModal();notasDiagnostico()">🔄 Probar otra vez</button>
     </div>`);
@@ -9936,6 +9938,7 @@ function notasDiagnostico(){
       : 'Probando…';
   };
   const paso = () => {
+    if(!ci) return;                       // sin cédula no se pregunta nada
     if(i >= urls.length){
       lineas.push({ nombre: 'Resultado', estado: lineas.some(l=>l.ok)
         ? '✅ se pudieron traer las notas'
@@ -10047,6 +10050,34 @@ function notasApiNombre_(u){
   return 'planilla guardada en este celular (…' + t.slice(-6) + ')';
 }
 /**
+ * 🪪 Cédula del alumno que se está mirando, buscándola en TODOS los lugares.
+ * Antes se usaba solo `currentUser.ci`; si la sesión era vieja o entró como
+ * alumno, quedaba vacía y la planilla recibía «ci=» → «no respondió».
+ */
+function estCedulaActual_(){
+  const u = currentUser || {};
+  const dig = t => String(t||'').replace(/[^0-9]/g,'');
+  const cands = [u.hijoId, u.hijoCi, u.ci, u.cedula, u.codigo, u.alumnoId, u.ciAlumno];
+  for (let i = 0; i < cands.length; i++) {
+    const d = dig(cands[i]);
+    if (d.length >= 5) return d;
+  }
+  // 🧭 último recurso: buscarla en el padrón por el nombre del hijo/alumno
+  const nom = String(u.hijo || u.name || '').trim().toUpperCase();
+  if (nom) {
+    let lista = [];
+    try { lista = (typeof alumnosStore === 'function') ? alumnosStore() : []; } catch (e) { lista = []; }
+    const igual = lista.find(a => String(a.nombre || '').trim().toUpperCase() === nom);
+    const parcial = igual || lista.find(a => String(a.nombre || '').toUpperCase().indexOf(nom) >= 0);
+    if (parcial) {
+      const d = dig(parcial.cedula || parcial.id);
+      if (d.length >= 5) return d;
+    }
+  }
+  return '';
+}
+
+/**
  * ⬇️ Trae las notas DIRECTO de Google Sheets (no de la PWA): pide cédula y PIN
  * a la planilla y prueba los enlaces conocidos hasta que uno conteste.
  */
@@ -10055,8 +10086,11 @@ function notasBajar_(cb){
   const grado = currentUser.hijoGrado || currentUser.grado;
   const urls = notasApiUrls_(grado);
   if(!urls.length) return cb(false, 'La planilla de este grado no está vinculada.');
-  const soloDig = t => String(t||'').replace(/[^0-9]/g,'');
-  const ci = soloDig((currentUser.role==='padre' || currentUser.role==='estudiante') ? (currentUser.ci||'') : (currentUser.ci||currentUser.codigo||''));
+  const ci = estCedulaActual_();
+  if (!ci) {
+    return cb(false, 'Este celular no tiene guardada la cédula del alumno. '
+      + 'Cerrá sesión y volvé a entrar escribiendo la cédula (y el PIN si lo pide).');
+  }
   const pin = currentUser.hijoPin || currentUser.pin || '';
   const probados = [];
   let i = 0;
@@ -10997,5 +11031,5 @@ let deferredPrompt=null; window.addEventListener('beforeinstallprompt',e=>{e.pre
 function promptInstall(){ if(deferredPrompt) deferredPrompt.prompt(); else toast('📲 Menú ⋮ → Agregar a pantalla principal'); }
 </script>
 <div id="printArea"></div>
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a5794fac2b2af1c1',t:'MTc5NDE5MDU0Mg=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a5794fac2b2af1c1',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a5796571ae1dd17d',t:'MTc5NDE5MTQzNA=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a5796571ae1dd17d',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
