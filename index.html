@@ -284,7 +284,7 @@ body{padding-bottom:env(safe-area-inset-bottom)}
 
     <div class="pt-foot">
       <b>Portal Educativo 1.281</b> · uso oficial de la escuela<br>
-      Funciona sin internet en el celular · <span class="pt-ver" id="selloVersion">PWA v3.79</span>
+      Funciona sin internet en el celular · <span class="pt-ver" id="selloVersion">PWA v3.81</span>
     </div>
   </div>
 </div>
@@ -444,7 +444,7 @@ function loadStore(k, fb){ try{ return JSON.parse(localStorage.getItem(k)) ?? fb
 // FORZAR ACTUALIZACIÓN A v2.1 - Tareas interactivas
 const APP_VERSION='2.2-corregida';
 /** 🏷️ sello que se muestra en el menú (dirección + versión de la PWA). Se cambia solo acá. */
-const APP_VERSION_UI='v3.79';
+const APP_VERSION_UI='v3.81';
 if(localStorage.getItem('app_version') !== APP_VERSION){
   localStorage.setItem('actividades', JSON.stringify(actividadesSeed));
   localStorage.setItem('entregasInteractivas', JSON.stringify([]));
@@ -10076,6 +10076,44 @@ const UNI_ESTADOS = [
 window.__uniFiltro = window.__uniFiltro || 'todos';
 
 function uniStore() { try { const u = loadStore('uni_estado', {}); return (u && typeof u === 'object') ? u : {}; } catch (e) { return {}; } }
+/** 📅 HISTORIAL: una marca por alumno y por día. Nada se borra: se acumula. */
+function uniHist() { try { const h = loadStore('uni_hist', {}); return (h && typeof h === 'object') ? h : {}; } catch (e) { return {}; } }
+function uniHistGuardar(h) { try { saveStore('uni_hist', h || {}); } catch (e) { } }
+function uniClave(ced, fecha) { return String(ced).replace(/\D/g, '') + '|' + String(fecha || uniHoy()).slice(0, 10); }
+/** Todas las marcas de un alumno, de la más nueva a la más vieja. */
+function uniHistAlumno(ced) {
+  const c = String(ced).replace(/\D/g, ''), h = uniHist(), out = [];
+  Object.keys(h).forEach(k => {
+    const p = k.split('|');
+    if (p[0] !== c) return;
+    const m = h[k];
+    if (m && m.estado) out.push({ fecha: p[1], estado: m.estado, por: m.por || '', nube: !!m.nube });
+  });
+  out.sort((a, b) => a.fecha < b.fecha ? 1 : (a.fecha > b.fecha ? -1 : 0));
+  return out;
+}
+/** 📊 Cuenta los días de un alumno en cada estado. */
+function uniResumenAlumno(ced) {
+  const r = { dias: 0, completo: 0, incompleto: 0, sin: 0, ultimo: '' };
+  uniHistAlumno(ced).forEach(m => {
+    r.dias++;
+    if (r[m.estado] != null) r[m.estado]++;
+    if (!r.ultimo) r.ultimo = m.fecha;
+  });
+  return r;
+}
+/** % de días con uniforme completo (sobre los días registrados). */
+function uniPct(ced) {
+  const r = uniResumenAlumno(ced);
+  if (!r.dias) return null;
+  return Math.round((r.completo * 100) / r.dias);
+}
+/** Todas las fechas registradas (para el selector del historial), de nueva a vieja. */
+function uniFechas() {
+  const h = uniHist(), set = {};
+  Object.keys(h).forEach(k => { const f = k.split('|')[1]; if (f) set[f] = true; });
+  return Object.keys(set).sort().reverse();
+}
 function uniHoy() {
   const d = new Date();
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
@@ -10093,20 +10131,21 @@ function uniISO_(f) {
 }
 
 /** ☁️ Sube a la planilla el estado de los alumnos indicados (hoja UNIFORME). */
-function uniSubir_(ids, cb) {
+function uniSubir_(ids, fecha, cb) {
   cb = cb || function () { };
   const url = (typeof comUrl === 'function' ? comUrl() : '');
   if (!url) { cb(false, null); return; }
-  const u = uniStore();
+  const hh = uniHist();
   const todos = (typeof alumnosStore === 'function' ? alumnosStore() : []);
   const regs = (ids || []).map(id => {
-    const e = u[String(id)];
-    if (!e || !e.estado) return null;
+    const dia = String(fecha || uniHoy()).slice(0, 10);
+    const m = hh[uniClave(id, dia)];
+    if (!m || !m.estado) return null;
     const a = todos.find(x => String(x.id) === String(id)) || {};
     return {
       cedula: String(a.cedula || id), nombre: String(a.nombre || ''),
       grado: String(a.grado || ''), turno: String(a.turno || ''), seccion: String(a.seccion || ''),
-      estado: String(e.estado), fecha: String(e.fecha || uniHoy()), por: String(e.por || '')
+      estado: String(m.estado), fecha: dia, por: String(m.por || '')
     };
   }).filter(Boolean);
   if (!regs.length) { cb(false, null); return; }
@@ -10127,20 +10166,30 @@ function uniBajar_(cb) {
   if (esFamilia && miId) params.cedula = miId;
   jsonpCall(url, params, (res) => {
     if (!res || !res.ok || !res.filas) return cb(false, 0);
-    const u = uniStore();
+    // fila: [ID, CEDULA, FECHA, ESTADO, NOMBRE, GRADO, SECCION, TURNO, POR, ACTUALIZADO]
+    const u = uniStore(), hh = uniHist();
     let cambios = 0;
     res.filas.forEach(f => {
-      const ced = String(f[0] || '').replace(/\D/g, '');
-      const est = String(f[5] || '').toLowerCase().trim();
+      const ced = String(f[1] || '').replace(/\D/g, '');
+      const est = String(f[3] || '').toLowerCase().trim();
       if (!ced || !uniEstado(est)) return;
-      const fechaISO = uniISO_(f[6]);
-      const previo = u[ced];
-      // si lo de este celular es más nuevo, no se pisa
-      if (previo && previo.fecha && uniISO_(previo.fecha) > fechaISO) return;
-      if (!previo || previo.estado !== est || uniISO_(previo.fecha) !== fechaISO) cambios++;
-      u[ced] = { estado: est, fecha: fechaISO, por: String(f[7] || ''), nube: true };
+      const fechaISO = uniISO_(f[2]);
+      if (!fechaISO) return;
+      const clave = uniClave(ced, fechaISO);
+      const previo = hh[clave];
+      // lo que se marcó en este celular y no se subió manda (todavía es más nuevo)
+      if (previo && previo.nube === false && !previo.porFecha) { /* se deja lo local */ }
+      else {
+        if (!previo || previo.estado !== est) cambios++;
+        hh[clave] = { estado: est, por: String(f[8] || ''), nube: true };
+      }
+      // el «último estado» del alumno solo se pisa si es de un día igual o más nuevo
+      if (!u[ced] || uniISO_(u[ced].fecha) <= fechaISO) {
+        u[ced] = { estado: est, fecha: fechaISO, por: String(f[8] || ''), nube: true };
+      }
     });
-    if (cambios) saveStore('uni_estado', u);
+    if (cambios) { saveStore('uni_estado', u); uniHistGuardar(hh); }
+    else if (Object.keys(hh).length) uniHistGuardar(hh);
     cb(true, cambios);
   }, { timeout: 20000 });
 }
@@ -10155,53 +10204,85 @@ function uniSincronizar_(forzar) {
 function uniEstado(k) { return UNI_ESTADOS.find(x => x.k === k) || null; }
 
 /** Marca el estado de UN alumno. Solo acepta los 3 estados. */
-function uniSet(id, estado) {
+function uniSet(id, estado, fecha) {
   if (!uniEstado(estado)) return toast('⚠️ Solo hay tres opciones: COMPLETO, INCOMPLETO o SIN UNIFORME');
+  const dia = String(fecha || uniHoy()).slice(0, 10);
+  const quien = (currentUser && (currentUser.name || '')) || '';
   const u = uniStore();
-  u[String(id)] = { estado: estado, fecha: uniHoy(), por: (currentUser && (currentUser.name || '')) || '' };
+  u[String(id)] = { estado: estado, fecha: dia, por: quien };
   saveStore('uni_estado', u);
+  // 📅 se acumula: la clave es alumno + día (marcar dos veces el mismo día lo actualiza)
+  const hh = uniHist();
+  hh[uniClave(id, dia)] = { estado: estado, por: quien, nube: false };
+  uniHistGuardar(hh);
   const e = uniEstado(estado);
   toast(e.ic + ' ' + e.t);
   if (currentView === 'uniforme') uniRepintar();
   // ☁️ viaja a la planilla para que el padre y el alumno también lo vean
-  uniSubir_([String(id)], (okk) => {
-    if (okk) toast('☁️ Guardado en la planilla · el padre ya lo puede ver');
-    else toast('⚠️ Quedó en este celular pero NO se pudo subir a la planilla');
+  uniSubir_([String(id)], dia, (okk) => {
+    if (okk) {
+      const h2 = uniHist();
+      if (h2[uniClave(id, dia)]) h2[uniClave(id, dia)].nube = true;
+      uniHistGuardar(h2);
+      toast('☁️ Guardado en la planilla · el padre ya lo puede ver');
+    } else toast('⚠️ Quedó en este celular pero NO se pudo subir a la planilla');
   });
 }
 /** Marca a TODO el curso con el mismo estado (con confirmación). */
 function uniSetTodos(estado) {
   const e = uniEstado(estado);
   if (!e) return;
-  const alumnos = (typeof alumnosCurso === 'function' && alumnosCurso().length) ? alumnosCurso() : [];
+  const alumnos = (typeof uniAlumnos === 'function') ? uniAlumnos() : [];
   if (!alumnos.length) return toast('⚠️ No hay alumnos activos en el curso');
   if (!confirm('¿Marcar ' + e.t + ' a los ' + alumnos.length + ' alumnos del curso?')) return;
-  const u = uniStore();
-  alumnos.forEach(a => { u[String(a.id)] = { estado: estado, fecha: uniHoy(), por: (currentUser && currentUser.name) || '' }; });
+  const dia = uniHoy(), quien = (currentUser && currentUser.name) || '';
+  const u = uniStore(), hh = uniHist();
+  alumnos.forEach(a => {
+    u[String(a.id)] = { estado: estado, fecha: dia, por: quien };
+    hh[uniClave(a.id, dia)] = { estado: estado, por: quien, nube: false };
+  });
   saveStore('uni_estado', u);
+  uniHistGuardar(hh);
   toast(e.ic + ' ' + e.t + ' a todo el curso (' + alumnos.length + ')');
   uniRepintar();
-  uniSubir_(alumnos.map(a => String(a.id)), (okk, res) => {
+  uniSubir_(alumnos.map(a => String(a.id)), dia, (okk, res) => {
     if (okk) toast('☁️ ' + ((res && res.total) || alumnos.length) + ' fichas guardadas en la planilla');
     else toast('⚠️ Quedó en este celular pero NO se pudo subir a la planilla');
   });
 }
 /** Borra el control del curso (para volver a empezar). */
-function uniBorrarTodo() {
-  const alumnos = (typeof alumnosCurso === 'function' ? alumnosCurso() : []);
-  const ids = alumnos.map(a => String(a.id));
-  if (!confirm('¿Borrar el control de uniforme del curso? Se borra también de la planilla.')) return;
-  saveStore('uni_estado', {});
+function uniBorrarHoy() {
+  const dia = uniHoy();
+  const alumnos = (typeof uniAlumnos === 'function' ? uniAlumnos() : []);
+  if (!confirm('¿Borrar SOLO las marcas de hoy (' + dia + ')?\nLos días anteriores NO se tocan.')) return;
+  const u = uniStore(), hh = uniHist();
+  const ids = [];
+  alumnos.forEach(a => {
+    delete hh[uniClave(a.id, dia)];
+    if (u[String(a.id)] && u[String(a.id)].fecha === dia) delete u[String(a.id)];
+    ids.push(String(a.id) + '-' + dia.replace(/-/g, ''));
+  });
+  saveStore('uni_estado', u); uniHistGuardar(hh);
   window.__uniFiltro = 'todos';
-  toast('🧹 Control de uniforme borrado');
+  toast('🧹 Borrado solo el día de hoy');
   uniRepintar();
   const url = (typeof comUrl === 'function' ? comUrl() : '');
-  if (url) {
-    jsonpCall(url, { unidel: '1', d: ids.join(',') }, (res) => {
-      if (res && res.ok) toast('🧹 También se borró de la planilla (' + (res.borrados || 0) + ')');
-      else toast('⚠️ Se borró acá; la planilla no confirmó');
-    }, { timeout: 20000 });
-  }
+  if (url) jsonpCall(url, { unidel: '1', d: ids.join(',') }, (res) => {
+    if (res && res.ok) toast('🧹 Hoy también se borró de la planilla (' + (res.borrados || 0) + ')');
+  }, { timeout: 20000 });
+}
+function uniBorrarTodo() {
+  if (!confirm('⚠️ ¿Borrar TODO el historial de uniforme (todos los días)?\nEsto NO se puede deshacer.')) return;
+  if (!confirm('Última confirmación: se borran los ' + uniFechas().length + ' días registrados, acá y en la planilla.')) return;
+  saveStore('uni_estado', {}); saveStore('uni_hist', {});
+  window.__uniFiltro = 'todos';
+  toast('🧹 Historial de uniforme borrado');
+  uniRepintar();
+  const url = (typeof comUrl === 'function' ? comUrl() : '');
+  if (url) jsonpCall(url, { unidel: '1', d: '' }, (res) => {
+    if (res && res.ok) toast('🧹 También se borró de la planilla (' + (res.borrados || 0) + ')');
+    else toast('⚠️ Se borró acá; la planilla no confirmó');
+  }, { timeout: 20000 });
 }
 function uniFiltrar(k) { window.__uniFiltro = k; uniRepintar(); }
 function uniRepintar() {
@@ -10219,14 +10300,176 @@ function uniResumen(alumnos) {
   return r;
 }
 
+/**
+ * 🏫 Curso del módulo Uniforme.
+ *  · DOCENTE  → solo los grados/turnos/secciones que tiene asignados en su ficha.
+ *  · DIRECCIÓN → todos los grados y turnos que existen en el padrón.
+ * La lista se arma con los alumnos reales cargados (si no hay ninguno, cae a la
+ * lista de la asistencia para no quedar vacía).
+ */
+function uniCursosDisponibles() {
+  const rol = (currentUser && currentUser.role) || '';
+  const todos = (typeof alumnosStore === 'function' ? alumnosStore() : [])
+    .filter(a => !(typeof alumnoActivo === 'function') || alumnoActivo(a));
+  let base = [];
+  if (rol === 'docente') {
+    // 👩‍🏫 primero los de su ficha; si el padrón tiene alumnos de esos cursos, mandan los reales
+    const mios = (typeof docenteCursos === 'function' ? docenteCursos(currentUser.docente) : []);
+    mios.forEach(c => {
+      const hay = todos.filter(a => String(a.grado || '') === c.grado &&
+        (!c.turno || String(a.turno || '') === c.turno) &&
+        (!c.seccion || String(a.seccion || 'A').toUpperCase() === String(c.seccion).toUpperCase()));
+      if (hay.length) {
+        const secs = [...new Set(hay.map(a => String(a.seccion || 'A').toUpperCase()))].sort();
+        secs.forEach(sc => base.push({ grado: c.grado, turno: c.turno, seccion: sc }));
+      } else {
+        base.push({ grado: c.grado, turno: c.turno, seccion: c.seccion || '' });
+      }
+    });
+  } else {
+    // 🏫 Dirección: TODO lo que tiene alumnos registrados (grado + turno + sección)
+    todos.forEach(a => {
+      const g = String(a.grado || '').trim();
+      if (!g) return;
+      base.push({ grado: g, turno: String(a.turno || '').trim(), seccion: String(a.seccion || 'A').toUpperCase() });
+    });
+  }
+  // sin repetidos
+  const set = {}, out = [];
+  base.forEach(c => {
+    const k = c.grado + '|' + c.turno + '|' + c.seccion;
+    if (set[k]) return;
+    set[k] = true;
+    out.push({ k: k, grado: c.grado, turno: c.turno, seccion: c.seccion,
+      label: (typeof etiquetaCurso === 'function' ? etiquetaCurso(c.grado, c.turno, c.seccion) : '') || c.grado });
+  });
+  // si no hay padrón, se usa lo que ya resuelve la asistencia
+  if (!out.length && typeof asisCursosDisponibles === 'function') {
+    return asisCursosDisponibles().map(c => ({ k: c.label, grado: c.grado, turno: c.turno,
+      seccion: String(c.seccion || '').toUpperCase(), label: c.label }));
+  }
+  // ordenados: grado, turno, sección
+  const ord = g => { const m = String(g).match(/(\d+)/); return m ? parseInt(m[1], 10) : 99; };
+  return out.sort((a, b) => ord(a.grado) - ord(b.grado) || a.grado.localeCompare(b.grado) ||
+    String(a.turno).localeCompare(String(b.turno)) || String(a.seccion).localeCompare(String(b.seccion)));
+}
+
+/** Curso elegido en Uniforme (por defecto, el primero de su lista). */
+function uniCursoSel() {
+  const lista = uniCursosDisponibles();
+  if (!lista.length) return null;
+  const k = window.__uniCurso;
+  return (k && lista.find(c => c.k === k)) || lista[0];
+}
+/** Cambiar de curso en Uniforme (no borra nada: cada curso tiene su historial). */
+function uniCursoSet(k) {
+  window.__uniCurso = k;
+  window.__uniFiltro = 'todos';
+  try {
+    const c = uniCursoSel();
+    if (c) window.asisCurso = { label: c.label, grado: c.grado, turno: c.turno, seccion: c.seccion || 'A' };
+    if (currentUser && currentUser.role === 'docente' && c) window.asisSeccionDocente = c.seccion || '';
+  } catch (e) { }
+  uniRepintar();
+}
+/** Alumnos del curso elegido (respeta grado + turno + sección). */
+function uniAlumnos() {
+  const c = uniCursoSel();
+  const todos = (typeof alumnosStore === 'function' ? alumnosStore() : [])
+    .filter(a => !(typeof alumnoActivo === 'function') || alumnoActivo(a));
+  if (!c) return todos;
+  let f = todos.filter(a => String(a.grado || '') === c.grado &&
+    (!c.turno || String(a.turno || '') === c.turno));
+  if (c.seccion) {
+    const conSec = f.filter(a => String(a.seccion || 'A').toUpperCase() === c.seccion);
+    if (conSec.length) f = conSec;
+  }
+  return f;
+}
+
+/** 📊 Informe ACUMULADO del curso: cuántos días cada alumno vino completo / incompleto / sin uniforme. */
+function uniInformeHTML(alumnos) {
+  const fechas = uniFechas();
+  if (!fechas.length) {
+    return `<div style="margin-top:14px;border:1px dashed #CBD5E1;border-radius:12px;padding:14px;text-align:center;color:#64748B;font-size:12.5px">
+      📅 <b>Todavía no hay historial.</b> Desde hoy, cada registro que hagas queda guardado y se va sumando día por día (no se borra).</div>`;
+  }
+  const filas = (alumnos || []).map(a => {
+    const r = uniResumenAlumno(a.id);
+    return { a: a, r: r, pct: uniPct(a.id) };
+  }).filter(x => x.r.dias > 0);
+  const totalDias = fechas.length;
+  const conDatos = filas.reduce((n, x) => n + x.r.dias, 0);
+  return `<div style="margin-top:16px;border-top:2px solid #E2E8F0;padding-top:14px">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <b style="font-size:14px">📅 Historial acumulado</b>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <span class="pill" style="background:#EFF6FF;color:#1E3A8A;border:1px solid #BFDBFE">${totalDias} día(s)</span>
+        <span class="pill" style="background:#F0FDF4;color:#166534;border:1px solid #BBF7D0">${conDatos} registro(s)</span>
+        <button class="btn btn-ghost" style="font-size:11px;padding:5px 9px" onclick="uniVerDias()">📆 Ver por día</button>
+      </div>
+    </div>
+    <div style="font-size:11.5px;color:#64748B;margin:4px 0 8px">Se suma solo: cada día que marcás se agrega a esta tabla.</div>
+    <div class="table-wrap"><table>
+      <tr><th>Alumno</th><th>Días</th><th>✅</th><th>⚠️</th><th>🚫</th><th>% completo</th></tr>
+      ${filas.map(x => `<tr>
+        <td style="font-size:12px"><b>${x.a.nombre || ''}</b></td>
+        <td style="font-size:12px">${x.r.dias}</td>
+        <td style="font-size:12px;color:#166534"><b>${x.r.completo}</b></td>
+        <td style="font-size:12px;color:#92400E"><b>${x.r.incompleto}</b></td>
+        <td style="font-size:12px;color:#991B1B"><b>${x.r.sin}</b></td>
+        <td style="font-size:12px"><span class="pill ${x.pct >= 80 ? 'pill-green' : (x.pct >= 50 ? 'pill-amber' : 'pill-red')}">${x.pct}%</span></td>
+      </tr>`).join('')}
+    </table></div>
+    ${filas.length ? '' : '<div style="font-size:12px;color:#64748B;padding:8px">Todavía no hay alumnos con registros.</div>'}
+  </div>`;
+}
+window.__uniDiaVer = window.__uniDiaVer || '';
+/** 📆 Ver un día puntual del historial (no borra nada). */
+function uniVerDias() {
+  const fechas = uniFechas();
+  const h = uniHist();
+  const filas = [];
+  Object.keys(h).forEach(k => {
+    const p = k.split('|'), m = h[k];
+    if (!m || !m.estado) return;
+    filas.push({ ced: p[0], fecha: p[1], estado: m.estado, por: m.por || '' });
+  });
+  const alumnos = (typeof alumnosStore === 'function' ? alumnosStore() : []);
+  const nom = ced => { const a = alumnos.find(x => String(x.cedula || '').replace(/\D/g, '') === ced); return a ? a.nombre : ced; };
+  const porFecha = {};
+  filas.forEach(f => { (porFecha[f.fecha] = porFecha[f.fecha] || []).push(f); });
+  openModal(`<h3 style="margin:0 0 4px">📆 Historial por día</h3>
+    <div class="card-sub" style="margin-bottom:8px">Todo lo registrado, día por día. Nada se borra.</div>
+    <div style="max-height:52vh;overflow:auto">
+    ${fechas.map(f => {
+    const lista = porFecha[f] || [];
+    const c = { completo: 0, incompleto: 0, sin: 0 };
+    lista.forEach(x => { if (c[x.estado] != null) c[x.estado]++; });
+    return `<div style="border:1px solid #E2E8F0;border-radius:10px;padding:9px 11px;margin-bottom:8px">
+        <b style="font-size:12.5px">${f}</b>
+        <span style="font-size:11px;color:#64748B;margin-left:6px">${lista.length} alumno(s)</span>
+        <div style="margin-top:5px;display:flex;gap:5px;flex-wrap:wrap;font-size:11px">
+          <span class="pill pill-green">✅ ${c.completo}</span>
+          <span class="pill pill-amber">⚠️ ${c.incompleto}</span>
+          <span class="pill pill-red">🚫 ${c.sin}</span>
+        </div>
+        <div style="font-size:11px;color:#475569;margin-top:5px">${lista.slice(0, 6).map(x => nom(x.ced)).join(' · ')}${lista.length > 6 ? ' …' : ''}</div>
+      </div>`;
+  }).join('') || '<div style="font-size:12px;color:#64748B">Sin registros.</div>'}
+    </div>`);
+}
+
 function renderUniforme() {
   const rol = (currentUser && currentUser.role) || '';
   const isDoc = rol === 'docente' || rol === 'director';
 
   /* ---------------- DOCENTE / DIRECCIÓN: los 3 botones por alumno ---------------- */
   if (isDoc) {
-    const alumnos = (typeof alumnosCurso === 'function' && alumnosCurso().length) ? alumnosCurso() : [];
-    const cursoTxt = (alumnos[0] && (alumnos[0].cursoNombre || alumnos[0].grado)) || currentUser.cursoNombre || 'Mi curso';
+    const alumnos = uniAlumnos();
+    const cursos = uniCursosDisponibles();
+    const sel = uniCursoSel();
+    const cursoTxt = (sel && sel.label) || 'Mi curso';
     const r = uniResumen(alumnos);
     const filtro = window.__uniFiltro || 'todos';
     const u = uniStore();
@@ -10253,6 +10496,14 @@ function renderUniforme() {
         </div>
       </div>
 
+      ${cursos.length ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:12px 0 0">
+        <span style="font-size:12px;font-weight:700;color:#334155">🏫 Curso:</span>
+        <select class="select" style="width:auto;min-width:190px;font-weight:700" onchange="uniCursoSet(this.value)">
+          ${cursos.map(c => `<option value="${c.k}" ${sel && c.k === sel.k ? 'selected' : ''}>${c.label} · ${c.seccion || '—'}</option>`).join('')}
+        </select>
+        <span style="font-size:11px;color:#64748B">${alumnos.length} alumno(s)${(currentUser.role === 'docente') ? ' · tus cursos asignados' : ' · todos los grados y turnos'}</span>
+      </div>` : ''}
+
       <div style="display:flex;gap:7px;flex-wrap:wrap;margin:12px 0">
         ${chip('todos', 'Todos', alumnos.length, { bg: '#F8FAFC', br: '#CBD5E1', fg: '#0F172A' })}
         ${chip('completo', '✅ Completo', r.completo, UNI_ESTADOS[0])}
@@ -10263,7 +10514,8 @@ function renderUniforme() {
 
       <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px">
         <button class="btn btn-primary" style="font-size:12px;padding:8px 12px" onclick="uniSetTodos('completo')">✅ Marcar todo COMPLETO</button>
-        <button class="btn btn-ghost" style="font-size:12px;padding:8px 12px" onclick="uniBorrarTodo()">🧹 Borrar el control</button>
+        <button class="btn btn-ghost" style="font-size:12px;padding:8px 12px" onclick="uniBorrarHoy()">🧹 Borrar solo hoy</button>
+        <button class="btn btn-ghost" style="font-size:12px;padding:8px 12px;color:#991B1B" onclick="uniBorrarTodo()">🗑️ Borrar todo el historial</button>
       </div>
 
       ${lista.length ? lista.map((a, i) => {
@@ -10271,7 +10523,9 @@ function renderUniforme() {
       return `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:9px 0;border-top:1px solid #E2E8F0">
         <div style="min-width:170px;flex:1">
           <b style="font-size:13px">${i + 1}. ${a.nombre || ''}</b><br>
-          <span style="font-size:11px;color:var(--muted)">CI ${a.cedula || a.id}${e.fecha ? ' • marcado ' + e.fecha : ' • sin marcar'}</span>
+          <span style="font-size:11px;color:var(--muted)">CI ${a.cedula || a.id}${
+        (() => { const n = uniHistAlumno(a.id).length; return n > 1 ? ' • ' + n + ' días registrados' : (n === 1 ? ' • 1 día registrado' : ' • sin historial'); })()
+      }${e.fecha === uniHoy() ? ' • hoy ' + (UNI_ESTADOS.find(x => x.k === e.estado) || {}).t : (e.fecha ? ' • último ' + e.fecha : ' • sin marcar')}</span>
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
           ${UNI_ESTADOS.map(st => {
@@ -10285,10 +10539,16 @@ function renderUniforme() {
       </div>`;
     }).join('') : `<div style="padding:14px;text-align:center;color:var(--muted);font-size:12.5px">No hay alumnos en este filtro.</div>`}
 
-      <div style="margin-top:12px;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:10px;padding:10px 12px;font-size:11.5px;color:#1E3A8A">
-        ☁️ <b>Se guarda en la planilla</b> (hoja UNIFORME) para que el padre y el alumno lo vean en su app, en <b>solo lectura</b>.
-        No cuenta como calificación.
+      <div style="margin-top:12px;background:#F5F3FF;border:1px solid #DDD6FE;border-left:4px solid #6D28D9;border-radius:10px;padding:11px 13px;font-size:12px;color:#4C1D95">
+        🎓 <b>El uniforme identifica al estudiante con su escuela.</b> Usarlo completo es señal de pertenencia, seguridad y respeto:
+        permite reconocerlo como alumno de la institución dentro y fuera del aula, y cuidarlo es parte de la formación ciudadana.
       </div>
+      <div style="margin-top:8px;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:10px;padding:10px 12px;font-size:11.5px;color:#1E3A8A">
+        ☁️ <b>Se guarda en la planilla</b> (hoja UNIFORME) para que el padre y el alumno lo vean en su app, en <b>solo lectura</b>.
+        Cada día que registrás queda guardado: <b>nada se borra, el historial se acumula</b>.
+      </div>
+
+      ${uniInformeHTML(alumnos)}
     </div>`;
   }
 
@@ -10317,8 +10577,29 @@ function renderUniforme() {
           Cuando lo haga, lo vas a ver acá.</div>
         <button class="btn btn-ghost" style="font-size:11.5px;padding:6px 10px;margin-top:9px" onclick="uniSincronizar_(true);toast('🔄 Buscando en la planilla…')">🔄 Volver a buscar</button>
       </div>`}
-    <div style="margin-top:12px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:10px 12px;font-size:11.5px;color:#92400E">
-      ℹ️ El uniforme es <b>gratuito</b> y lo entrega la escuela. Este control es solo informativo: <b>no es una calificación</b>.
+    ${(() => {
+      const hist = uniHistAlumno(id);
+      if (!hist.length) return '';
+      const rr = uniResumenAlumno(id);
+      return `<div style="margin-top:14px">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+          <b style="font-size:13px">📅 Registros anteriores</b>
+          <span class="pill" style="background:#F1F5F9;color:#334155">${rr.dias} día(s) · ${uniPct(id)}% completo</span>
+        </div>
+        <div class="table-wrap" style="margin-top:8px"><table><tr><th>Fecha</th><th>Estado</th><th>Registró</th></tr>
+        ${hist.slice(0, 15).map(m => {
+        const st2 = uniEstado(m.estado) || {};
+        return `<tr><td style="font-size:12px">${m.fecha}</td>
+            <td><span class="pill" style="background:${st2.bg};color:${st2.fg};border:1px solid ${st2.br}">${st2.ic} ${st2.t}</span></td>
+            <td style="font-size:11.5px;color:var(--muted)">${m.por || '—'}</td></tr>`;
+      }).join('')}
+        </table></div>
+        ${hist.length > 15 ? `<div style="font-size:11px;color:#64748B;margin-top:5px">Mostrando los últimos 15 de ${hist.length}.</div>` : ''}
+      </div>`;
+    })()}
+    <div style="margin-top:12px;background:#F5F3FF;border:1px solid #DDD6FE;border-left:4px solid #6D28D9;border-radius:10px;padding:11px 13px;font-size:12px;color:#4C1D95">
+      🎓 <b>El uniforme identifica a ${(nombre || '').split(' ')[0]} como estudiante de la escuela.</b>
+      Usarlo completo demuestra pertenencia, seguridad y respeto dentro y fuera del aula.
     </div>
     <button class="btn btn-primary" style="width:100%;margin-top:10px" onclick="navigate('mensajes')">✉️ Consultar por el uniforme</button>
   </div>`;
@@ -10542,5 +10823,5 @@ let deferredPrompt=null; window.addEventListener('beforeinstallprompt',e=>{e.pre
 function promptInstall(){ if(deferredPrompt) deferredPrompt.prompt(); else toast('📲 Menú ⋮ → Agregar a pantalla principal'); }
 </script>
 <div id="printArea"></div>
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a57890f61cfb2d4c',t:'MTc5NDE4MjczMQ=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a57890f61cfb2d4c',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a578ca7bcf469d69',t:'MTc5NDE4NTA4Nw=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a578ca7bcf469d69',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
